@@ -100,7 +100,8 @@ export function TunnelsPanel({
               />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="file__name">
-                  {f.label || (f.kind === "local" ? `-L ${f.localPort}` : `-R ${f.localPort}`)}
+                  {f.label ||
+                    `${f.kind === "local" ? "-L" : f.kind === "remote" ? "-R" : "-D"} ${f.localPort}`}
                   {f.autoStart && (
                     <span className="muted" style={{ fontSize: 10 }}>
                       {" "}

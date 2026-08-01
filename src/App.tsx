@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   Cable,
+  Circle,
   Container,
   FolderTree,
   History,
@@ -195,6 +196,12 @@ export default function App() {
               ?.term.write(`\r\n\x1b[33m── túneis: ${r.errors.join("; ")} ──\x1b[0m\r\n`);
           }
         });
+        if (useAppStore.getState().settings.autoRecord) {
+          void api
+            .recordingStart(info.sessionId)
+            .then((path) => useAppStore.getState().updatePane(paneId, { recording: path }))
+            .catch(() => {});
+        }
       } catch (raw) {
         const e = asAppError(raw);
         if (!handleConnectError(e)) {
@@ -252,7 +259,8 @@ export default function App() {
       terminals
         .get(found.pane.id)
         ?.markClosed(exitStatus != null ? `${reason} (código ${exitStatus})` : reason);
-      updatePane(found.pane.id, { status: "closed", detail: reason });
+      // A gravação morre com a sessão; o backend já fechou o arquivo.
+      updatePane(found.pane.id, { status: "closed", detail: reason, recording: null });
 
       // Auto-reconnect só para queda inesperada: `exit` limpo (exitStatus
       // preenchido) e fechamento pelo usuário não contam.
@@ -411,6 +419,25 @@ export default function App() {
     void api.sshWrite(activePane.sessionId, Array.from(encoder.encode(body)));
   };
 
+  /** Liga/desliga a gravação da sessão do painel ativo. */
+  const toggleRecording = () => {
+    if (!activePane?.sessionId) return;
+    const { id, sessionId, recording } = activePane;
+    void (async () => {
+      try {
+        if (recording) {
+          await api.recordingStop(sessionId);
+          useAppStore.getState().updatePane(id, { recording: null });
+        } else {
+          const path = await api.recordingStart(sessionId);
+          useAppStore.getState().updatePane(id, { recording: path });
+        }
+      } catch {
+        // Sessão que morreu no meio: o painel já mostra o estado real.
+      }
+    })();
+  };
+
   /** Liga o broadcast, pedindo confirmação quando painéis PROD receberiam input. */
   const toggleBroadcast = () => {
     const { broadcast: on, tabs: current, settings } = useAppStore.getState();
@@ -469,7 +496,10 @@ export default function App() {
         return;
       }
 
-      if (e.key === "d" || e.key === "D") {
+      if (e.key === "n") {
+        e.preventDefault();
+        setEditing({ ...EMPTY_CONNECTION });
+      } else if (e.key === "d" || e.key === "D") {
         // ⌘D divide lado a lado; ⌘⇧D divide empilhado (como no iTerm).
         e.preventDefault();
         splitActive(e.shiftKey ? "col" : "row");
@@ -773,6 +803,19 @@ export default function App() {
               onClick={toggleBroadcast}
             >
               <Radio size={14} />
+            </button>
+            <button
+              className="icon-btn"
+              data-recording={!!activePane?.recording}
+              disabled={!activePane?.sessionId}
+              title={
+                activePane?.recording
+                  ? `Gravando em ${activePane.recording} — clique para parar`
+                  : "Gravar a saída desta sessão em arquivo"
+              }
+              onClick={toggleRecording}
+            >
+              <Circle size={14} fill={activePane?.recording ? "currentColor" : "none"} />
             </button>
             <button
               className="icon-btn"

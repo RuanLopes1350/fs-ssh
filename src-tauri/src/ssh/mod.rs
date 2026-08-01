@@ -3,6 +3,7 @@ pub mod handler;
 pub mod hostkey;
 pub mod session;
 pub mod sftp;
+pub mod socks;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -48,6 +49,8 @@ pub struct SessionHandle {
     remote_targets: RemoteTargets,
     /// Túneis ativos, por id da definição (`port_forwards.id`).
     forwards: Mutex<HashMap<String, ActiveForward>>,
+    /// Caminho da gravação em andamento, se houver.
+    recording: Mutex<Option<String>>,
 }
 
 impl SessionHandle {
@@ -82,6 +85,28 @@ impl SessionHandle {
         Ok(sess)
     }
 
+    // ------------------------------------------------------------ gravação
+
+    pub async fn recording_path(&self) -> Option<String> {
+        self.recording.lock().await.clone()
+    }
+
+    /// Liga a gravação em `path` ou desliga (`None`).
+    pub async fn set_recording(&self, path: Option<String>) -> AppResult<()> {
+        let mut slot = self.recording.lock().await;
+        let (tx, rx) = oneshot::channel();
+        self.send(SessionCmd::Record {
+            path: path.clone(),
+            reply: tx,
+        })
+        .await?;
+        rx.await
+            .map_err(|_| AppError::msg("sessão encerrada durante a gravação"))?
+            .map_err(AppError::msg)?;
+        *slot = path;
+        Ok(())
+    }
+
     // ------------------------------------------------------------- forwards
 
     pub async fn active_forward_ids(&self) -> Vec<String> {
@@ -98,6 +123,7 @@ impl SessionHandle {
         let active = match f.kind.as_str() {
             "local" => self.start_local(f).await?,
             "remote" => self.start_remote(f).await?,
+            "dynamic" => self.start_dynamic(f).await?,
             other => return Err(AppError::msg(format!("tipo de túnel inválido: {other}"))),
         };
         forwards.insert(f.id.clone(), active);
@@ -144,6 +170,73 @@ impl SessionHandle {
                     };
                     let mut stream = channel.into_stream();
                     let _ = tokio::io::copy_bidirectional(&mut sock, &mut stream).await;
+                });
+            }
+        });
+
+        Ok(ActiveForward {
+            kind: f.kind.clone(),
+            task: Some(task),
+            bind_addr: f.bind_addr.clone(),
+            port: f.local_port,
+        })
+    }
+
+    /// -D: proxy SOCKS5 local. Cada conexão negocia o destino com o cliente e
+    /// vira um canal direct-tcpip — o servidor SSH faz o papel de saída.
+    async fn start_dynamic(&self, f: &PortForward) -> AppResult<ActiveForward> {
+        let listener = tokio::net::TcpListener::bind((f.bind_addr.as_str(), f.local_port))
+            .await
+            .map_err(|e| {
+                AppError::msg(format!(
+                    "não deu para escutar em {}:{}: {e}",
+                    f.bind_addr, f.local_port
+                ))
+            })?;
+
+        let tx = self.tx.clone();
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    break;
+                };
+                let tx = tx.clone();
+                tokio::spawn(async move {
+                    let (host, port) = match socks::handshake(&mut sock).await {
+                        Ok(target) => target,
+                        Err(e) => {
+                            tracing::debug!("handshake SOCKS falhou: {e}");
+                            return;
+                        }
+                    };
+
+                    let (otx, orx) = oneshot::channel();
+                    if tx
+                        .send(SessionCmd::OpenDirectTcpip {
+                            host: host.clone(),
+                            port: port as u32,
+                            reply: otx,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        let _ = socks::reply(&mut sock, socks::REP_GENERAL_FAILURE).await;
+                        return;
+                    }
+
+                    match orx.await {
+                        Ok(Ok(channel)) => {
+                            if socks::reply(&mut sock, socks::REP_OK).await.is_err() {
+                                return;
+                            }
+                            let mut stream = channel.into_stream();
+                            let _ = tokio::io::copy_bidirectional(&mut sock, &mut stream).await;
+                        }
+                        _ => {
+                            tracing::debug!("SOCKS: servidor recusou {host}:{port}");
+                            let _ = socks::reply(&mut sock, socks::REP_GENERAL_FAILURE).await;
+                        }
+                    }
                 });
             }
         });
@@ -269,6 +362,7 @@ impl SessionManager {
             sftp: Mutex::new(None),
             remote_targets,
             forwards: Mutex::new(HashMap::new()),
+            recording: Mutex::new(None),
         });
         self.map
             .write()

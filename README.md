@@ -28,7 +28,7 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. Feito com **Taur
 - **Instalar chave no servidor** (equivalente ao `ssh-copy-id`) usando a sessão já autenticada.
 
 ### Port forwarding
-- Túneis **-L (local)** e **-R (reverso)** salvos por conexão, com nome e **auto-início** junto com a sessão.
+- Túneis **-L (local)**, **-R (reverso)** e **-D (dinâmico, proxy SOCKS5)** salvos por conexão, com nome e **auto-início** junto com a sessão.
 - Painel "Túneis" para ligar/desligar em tempo real, com status e erros visíveis.
 - Funciona através de jump host; bind local padrão em `127.0.0.1`.
 
@@ -41,6 +41,10 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. Feito com **Taur
 ### Docker/Podman remoto
 - Painel que lista os containers do host conectado (via canal exec, nada instalado no servidor), com estado e portas.
 - Ações "shell no container" e "logs" — o comando é digitado no terminal, à vista.
+
+### Gravação de sessão e logs
+- **Gravar sessão** (botão ● na barra de ferramentas ou automático nas configurações): a saída do terminal vai para um arquivo de texto em `recordings/`, sem códigos de escape, com permissão 0600.
+- Painel de gestão → **Gravações** lista, visualiza e apaga; → **Logs** mostra o log da aplicação (conexões, túneis, falhas), com opção de limpar.
 
 ### Temas
 - 6 temas embutidos + **editor de temas** com preview ao vivo nos terminais abertos e **importação de `.itermcolors`**.
@@ -56,6 +60,7 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. Feito com **Taur
 | Atalho | Ação |
 |---|---|
 | ⌘K / ⌘T | Paleta: conectar ou rodar snippet |
+| ⌘N | Nova conexão |
 | ⌘F | Buscar no terminal |
 | ⌘B | Mostrar/esconder barra lateral |
 | ⌘D / ⌘⇧D | Dividir painel (lado a lado / empilhado) |

@@ -12,15 +12,37 @@ use cmd::AppState;
 use ssh::SessionManager;
 use store::Db;
 
+/// Teto do arquivo de log. Passou disso, recomeça no boot — logs de um cliente
+/// SSH desktop servem para depurar o dia, não para arquivar o ano.
+const MAX_LOG_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Manda o `tracing` para `logs/fs-ssh.log` além do stdout, para a aba de logs
+/// da UI ter o que mostrar em uma instalação normal (sem terminal à vista).
+fn init_logging(data_dir: &std::path::Path) {
+    let dir = cmd::record::logs_dir(data_dir);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let path = dir.join("fs-ssh.log");
+    if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > MAX_LOG_BYTES {
+        let _ = std::fs::write(&path, b"");
+    }
+
+    let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) else {
+        return;
+    };
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "fs_ssh_lib=info,russh=warn".into());
+
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_ansi(false)
+        .with_writer(move || file.try_clone().expect("clonar arquivo de log"))
+        .try_init();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "fs_ssh_lib=info,russh=warn".into()),
-        )
-        .init();
-
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -30,10 +52,14 @@ pub fn run() {
             cmd::sftp::sweep_stale_temp_files();
 
             let dir = app.path().app_data_dir()?;
+            init_logging(&dir);
+            tracing::info!("fs-ssh iniciado (dados em {})", dir.display());
+
             let db = Arc::new(Db::open(&dir)?);
             app.manage(AppState {
                 db,
                 sessions: Arc::new(SessionManager::default()),
+                data_dir: dir,
             });
             Ok(())
         })
@@ -79,6 +105,17 @@ pub fn run() {
             cmd::forward::forward_stop,
             cmd::forward::forward_active,
             cmd::forward::forward_autostart,
+            // gravação de sessão e logs
+            cmd::record::recording_start,
+            cmd::record::recording_stop,
+            cmd::record::recording_active,
+            cmd::record::recording_list,
+            cmd::record::recording_read,
+            cmd::record::recording_delete,
+            cmd::record::recordings_dir_path,
+            cmd::record::logs_read,
+            cmd::record::logs_path,
+            cmd::record::logs_clear,
             // sftp
             cmd::sftp::sftp_list,
             cmd::sftp::sftp_home,

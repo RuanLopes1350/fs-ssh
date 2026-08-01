@@ -96,6 +96,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         "Broadcast ignora abas de produção",
         "Com o modo broadcast ligado, o que você digita não é enviado para abas marcadas como PROD.",
       )}
+      {check(
+        "autoRecord",
+        "Gravar todas as sessões automaticamente",
+        "Salva a saída do terminal em arquivos de texto (0600) na pasta de gravações. Cuidado: registra tudo que aparece na tela, inclusive segredos. As gravações ficam no painel de gestão → Gravações.",
+      )}
 
       <div
         style={{

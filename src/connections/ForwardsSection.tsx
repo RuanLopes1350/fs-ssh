@@ -16,6 +16,9 @@ const EMPTY: Omit<PortForward, "id" | "connectionId"> = {
 
 /** Descrição humana do mapeamento, na direção em que os bytes fluem. */
 export function describeForward(f: PortForward): string {
+  if (f.kind === "dynamic") {
+    return `SOCKS5 em localhost:${f.localPort} (saída pelo servidor)`;
+  }
   return f.kind === "local"
     ? `localhost:${f.localPort} → ${f.remoteHost}:${f.remotePort} (via servidor)`
     : `servidor:${f.localPort} → ${f.remoteHost}:${f.remotePort} (sua máquina)`;
@@ -119,15 +122,22 @@ export function ForwardsSection({ connectionId }: { connectionId: string }) {
               <select
                 value={draft.kind}
                 onChange={(e) =>
-                  setDraft({ ...draft, kind: e.target.value as "local" | "remote" })
+                  setDraft({ ...draft, kind: e.target.value as PortForward["kind"] })
                 }
               >
                 <option value="local">Local (-L): acessar porta do servidor aqui</option>
                 <option value="remote">Reverso (-R): expor porta local no servidor</option>
+                <option value="dynamic">Dinâmico (-D): proxy SOCKS5 pelo servidor</option>
               </select>
             </div>
             <div className="field" style={{ maxWidth: 110 }}>
-              <label>{draft.kind === "local" ? "Porta local" : "Porta no servidor"}</label>
+              <label>
+                {draft.kind === "remote"
+                  ? "Porta no servidor"
+                  : draft.kind === "dynamic"
+                    ? "Porta SOCKS"
+                    : "Porta local"}
+              </label>
               <input
                 type="number"
                 min={1}
@@ -138,29 +148,42 @@ export function ForwardsSection({ connectionId }: { connectionId: string }) {
               />
             </div>
           </div>
-          <div className="row">
-            <div className="field">
-              <label>
-                {draft.kind === "local" ? "Destino (visto pelo servidor)" : "Destino (sua máquina)"}
-              </label>
-              <input
-                value={draft.remoteHost}
-                onChange={(e) => setDraft({ ...draft, remoteHost: e.target.value })}
-                placeholder="localhost"
-              />
+          {draft.kind === "dynamic" ? (
+            <div className="muted" style={{ fontSize: 11 }}>
+              O destino é decidido pelo cliente a cada conexão — configure o navegador
+              (ou <code>curl --socks5-hostname</code>) para usar{" "}
+              <code>localhost:{draft.localPort || "…"}</code>. A resolução de DNS também
+              sai pelo servidor.
             </div>
-            <div className="field" style={{ maxWidth: 110 }}>
-              <label>Porta destino</label>
-              <input
-                type="number"
-                min={1}
-                max={65535}
-                value={draft.remotePort || ""}
-                onChange={(e) => setDraft({ ...draft, remotePort: Number(e.target.value) || 0 })}
-                placeholder="5432"
-              />
+          ) : (
+            <div className="row">
+              <div className="field">
+                <label>
+                  {draft.kind === "local"
+                    ? "Destino (visto pelo servidor)"
+                    : "Destino (sua máquina)"}
+                </label>
+                <input
+                  value={draft.remoteHost}
+                  onChange={(e) => setDraft({ ...draft, remoteHost: e.target.value })}
+                  placeholder="localhost"
+                />
+              </div>
+              <div className="field" style={{ maxWidth: 110 }}>
+                <label>Porta destino</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={draft.remotePort || ""}
+                  onChange={(e) =>
+                    setDraft({ ...draft, remotePort: Number(e.target.value) || 0 })
+                  }
+                  placeholder="5432"
+                />
+              </div>
             </div>
-          </div>
+          )}
           <div className="row" style={{ alignItems: "flex-end" }}>
             <div className="field">
               <label>Nome (opcional)</label>
@@ -194,7 +217,10 @@ export function ForwardsSection({ connectionId }: { connectionId: string }) {
             </button>
             <button
               className="btn btn--primary"
-              disabled={!draft.localPort || !draft.remotePort || !draft.remoteHost.trim()}
+              disabled={
+                !draft.localPort ||
+                (draft.kind !== "dynamic" && (!draft.remotePort || !draft.remoteHost.trim()))
+              }
               onClick={() => void add()}
             >
               Adicionar

@@ -46,7 +46,109 @@ pub enum SessionCmd {
         register: bool,
         reply: oneshot::Sender<Result<(), String>>,
     },
+    /// Liga (`Some(path)`) ou desliga (`None`) a gravação da saída do terminal.
+    Record {
+        path: Option<String>,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
     Close,
+}
+
+/// Grava a saída do terminal em texto.
+///
+/// As sequências de escape são removidas: o objetivo é um arquivo legível
+/// (auditoria, "o que eu rodei mesmo?"), não um replay fiel — para replay o
+/// caminho seria asciinema, que é outro formato.
+struct Recorder {
+    file: std::fs::File,
+    state: EscState,
+}
+
+enum EscState {
+    Text,
+    Esc,
+    Csi,
+    Osc,
+    /// Dentro de OSC e o último byte foi ESC (fim é `ESC \`).
+    OscEsc,
+}
+
+impl Recorder {
+    fn create(path: &str) -> std::io::Result<Self> {
+        use std::io::Write;
+        if let Some(dir) = std::path::Path::new(path).parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let mut opts = std::fs::OpenOptions::new();
+        opts.create(true).append(true);
+        // A gravação pode conter tudo que passou pela tela, inclusive segredos
+        // digitados ou exibidos: nasce 0600.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut file = opts.open(path)?;
+        writeln!(
+            file,
+            "── gravação iniciada em {} ──",
+            chrono::Local::now().format("%d/%m/%Y %H:%M:%S")
+        )?;
+        Ok(Recorder {
+            file,
+            state: EscState::Text,
+        })
+    }
+
+    fn write(&mut self, data: &[u8]) {
+        use std::io::Write;
+        let mut out = Vec::with_capacity(data.len());
+        for &b in data {
+            match self.state {
+                EscState::Text => match b {
+                    0x1b => self.state = EscState::Esc,
+                    b'\n' | b'\t' => out.push(b),
+                    b'\r' => {}                            // CR isolado só move o cursor
+                    0x20..=0x7e | 0x80..=0xff => out.push(b), // texto e UTF-8
+                    _ => {}
+                },
+                EscState::Esc => {
+                    self.state = match b {
+                        b'[' => EscState::Csi,
+                        b']' => EscState::Osc,
+                        _ => EscState::Text, // ESC de 2 bytes: descarta e segue
+                    }
+                }
+                // CSI termina no primeiro byte final (0x40..=0x7e).
+                EscState::Csi => {
+                    if (0x40..=0x7e).contains(&b) {
+                        self.state = EscState::Text;
+                    }
+                }
+                EscState::Osc => match b {
+                    0x07 => self.state = EscState::Text,
+                    0x1b => self.state = EscState::OscEsc,
+                    _ => {}
+                },
+                EscState::OscEsc => {
+                    self.state = if b == b'\\' { EscState::Text } else { EscState::Osc };
+                }
+            }
+        }
+        if !out.is_empty() {
+            let _ = self.file.write_all(&out);
+        }
+    }
+
+    fn finish(&mut self) {
+        use std::io::Write;
+        let _ = writeln!(
+            self.file,
+            "\n── gravação encerrada em {} ──",
+            chrono::Local::now().format("%d/%m/%Y %H:%M:%S")
+        );
+        let _ = self.file.flush();
+    }
 }
 
 /// Saída máxima de um exec — proteção contra um `docker ps` que nunca termina.
@@ -86,6 +188,7 @@ pub async fn run_session(
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     let mut exit_status: Option<u32> = None;
+    let mut recorder: Option<Recorder> = None;
     let reason;
 
     loop {
@@ -104,6 +207,24 @@ pub async fn run_session(
                 }
                 Some(SessionCmd::OpenSftp(reply)) => {
                     let _ = reply.send(open_sftp(&handle).await);
+                }
+                Some(SessionCmd::Record { path, reply }) => {
+                    let r = match path {
+                        Some(p) => match Recorder::create(&p) {
+                            Ok(rec) => {
+                                if let Some(old) = recorder.as_mut() { old.finish(); }
+                                recorder = Some(rec);
+                                tracing::info!("gravação de sessão iniciada em {p}");
+                                Ok(())
+                            }
+                            Err(e) => Err(e.to_string()),
+                        },
+                        None => {
+                            if let Some(mut old) = recorder.take() { old.finish(); }
+                            Ok(())
+                        }
+                    };
+                    let _ = reply.send(r);
                 }
                 Some(SessionCmd::OpenDirectTcpip { host, port, reply }) => {
                     let r = handle
@@ -151,6 +272,9 @@ pub async fn run_session(
 
             msg = read.wait() => match msg {
                 Some(ChannelMsg::Data { data }) => {
+                    if let Some(rec) = recorder.as_mut() {
+                        rec.write(&data);
+                    }
                     buf.extend_from_slice(&data);
                     if buf.len() >= FLUSH_BYTES {
                         flush(&out, &mut buf);
@@ -159,6 +283,9 @@ pub async fn run_session(
                 // stderr do PTY chega como extended data; no terminal os dois
                 // fluxos são a mesma tela, então vão para o mesmo buffer.
                 Some(ChannelMsg::ExtendedData { data, .. }) => {
+                    if let Some(rec) = recorder.as_mut() {
+                        rec.write(&data);
+                    }
                     buf.extend_from_slice(&data);
                     if buf.len() >= FLUSH_BYTES {
                         flush(&out, &mut buf);
@@ -189,6 +316,10 @@ pub async fn run_session(
     // Não perde o que ficou no buffer (mensagem de erro do shell, "logout", etc.).
     if !buf.is_empty() {
         flush(&out, &mut buf);
+    }
+
+    if let Some(mut rec) = recorder.take() {
+        rec.finish();
     }
 
     let _ = handle

@@ -186,8 +186,8 @@ export interface AuthPrompt {
 export interface PortForward {
   id: string;
   connectionId: string;
-  /** `local` (-L) ou `remote` (-R). */
-  kind: "local" | "remote";
+  /** `local` (-L), `remote` (-R) ou `dynamic` (-D, proxy SOCKS5). */
+  kind: "local" | "remote" | "dynamic";
   label: string;
   bindAddr: string;
   /** -L: porta local escutada; -R: porta exposta no servidor. */
@@ -196,6 +196,14 @@ export interface PortForward {
   remoteHost: string;
   remotePort: number;
   autoStart: boolean;
+}
+
+export interface Recording {
+  name: string;
+  path: string;
+  size: number;
+  /** Epoch em segundos. */
+  modified: number;
 }
 
 export interface AutostartResult {

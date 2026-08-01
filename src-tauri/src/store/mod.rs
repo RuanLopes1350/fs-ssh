@@ -210,11 +210,18 @@ impl Db {
     }
 
     pub fn save_forward(&self, mut f: PortForward) -> AppResult<PortForward> {
-        if !matches!(f.kind.as_str(), "local" | "remote") {
+        if !matches!(f.kind.as_str(), "local" | "remote" | "dynamic") {
             return Err(AppError::msg(format!("tipo de túnel inválido: {}", f.kind)));
         }
-        if f.local_port == 0 || f.remote_port == 0 {
+        if f.local_port == 0 {
             return Err(AppError::msg("porta não pode ser 0"));
+        }
+        // O SOCKS descobre o destino em tempo de conexão: não há host/porta fixos.
+        if f.kind == "dynamic" {
+            f.remote_host = String::new();
+            f.remote_port = 0;
+        } else if f.remote_port == 0 {
+            return Err(AppError::msg("porta de destino não pode ser 0"));
         }
         let c = self.lock()?;
         if f.id.is_empty() {

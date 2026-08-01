@@ -7,6 +7,7 @@ import type {
   ExecResult,
   Folder,
   PortForward,
+  Recording,
   Identity,
   KnownHost,
   LocalEntry,
@@ -113,6 +114,19 @@ export const api = {
     invoke<string[]>("forward_active", { sessionId }),
   forwardAutostart: (sessionId: string) =>
     invoke<AutostartResult>("forward_autostart", { sessionId }),
+
+  recordingStart: (sessionId: string) => invoke<string>("recording_start", { sessionId }),
+  recordingStop: (sessionId: string) => invoke<void>("recording_stop", { sessionId }),
+  recordingActive: (sessionId: string) =>
+    invoke<string | null>("recording_active", { sessionId }),
+  recordingList: () => invoke<Recording[]>("recording_list"),
+  recordingRead: (path: string) => invoke<string>("recording_read", { path }),
+  recordingDelete: (path: string) => invoke<void>("recording_delete", { path }),
+  recordingsDirPath: () => invoke<string>("recordings_dir_path"),
+
+  logsRead: () => invoke<string>("logs_read"),
+  logsPath: () => invoke<string>("logs_path"),
+  logsClear: () => invoke<void>("logs_clear"),
 
   sshExec: (sessionId: string, command: string) =>
     invoke<ExecResult>("ssh_exec", { sessionId, command }),

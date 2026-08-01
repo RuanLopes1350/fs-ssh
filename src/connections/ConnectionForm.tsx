@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, Trash2 } from "lucide-react";
 
-import { Modal } from "../components/Dialogs";
+import { ConfirmDialog, Modal } from "../components/Dialogs";
 import { ConnIcon, ICON_NAMES } from "../components/Icon";
 import { ForwardsSection } from "./ForwardsSection";
 import { api } from "../lib/ipc";
@@ -46,6 +46,7 @@ export function ConnectionForm({
   const [conn, setConn] = useState<Connection>(initial);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const identities = useAppStore((s) => s.identities);
   const themes = useAppStore((s) => s.themes);
@@ -104,7 +105,11 @@ export function ConnectionForm({
       footer={
         <>
           {conn.id && (
-            <button className="btn btn--danger" onClick={remove} title="Excluir conexão">
+            <button
+              className="btn btn--danger"
+              onClick={() => setConfirmDelete(true)}
+              title="Excluir conexão"
+            >
               <Trash2 size={13} />
             </button>
           )}
@@ -119,6 +124,25 @@ export function ConnectionForm({
       }
     >
       {error && <div className="alert alert--danger">{error}</div>}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Excluir conexão"
+          danger
+          confirmLabel="Excluir"
+          message={
+            <>
+              Excluir <b>{conn.name || "esta conexão"}</b> ({conn.username}@{conn.host})?
+              As sessões já abertas continuam funcionando.
+            </>
+          }
+          onConfirm={() => {
+            setConfirmDelete(false);
+            void remove();
+          }}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
 
       <div className="row">
         <div className="field" style={{ flex: 2 }}>

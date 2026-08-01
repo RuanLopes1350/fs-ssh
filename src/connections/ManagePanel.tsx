@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import {
   Check,
   Download,
+  Eye,
+  FileText,
   KeyRound,
   Palette,
   Pencil,
   Plus,
+  RefreshCw,
   ServerCog,
   ShieldCheck,
   Tag as TagIcon,
@@ -23,13 +26,22 @@ import { useAppStore } from "../store/useAppStore";
 import type {
   Identity,
   KnownHost,
+  Recording,
   Snippet,
   SshConfigHost,
   TerminalPalette,
   Theme,
 } from "../lib/types";
 
-type TabKey = "keys" | "snippets" | "tags" | "themes" | "hosts" | "import";
+type TabKey =
+  | "keys"
+  | "snippets"
+  | "tags"
+  | "themes"
+  | "hosts"
+  | "recordings"
+  | "logs"
+  | "import";
 
 export function ManagePanel({
   activeSessionId,
@@ -45,7 +57,7 @@ export function ManagePanel({
 
   return (
     <Modal
-      title="Chaves, snippets, tags, temas e hosts"
+      title="Chaves, snippets, temas, gravações e logs"
       wide
       tall
       onClose={onClose}
@@ -63,6 +75,8 @@ export function ManagePanel({
             ["tags", "Tags"],
             ["themes", "Temas"],
             ["hosts", "Hosts conhecidos"],
+            ["recordings", "Gravações"],
+            ["logs", "Logs"],
             ["import", "~/.ssh/config"],
           ] as [TabKey, string][]
         ).map(([k, label]) => (
@@ -92,6 +106,8 @@ export function ManagePanel({
       {tab === "tags" && <TagsTab />}
       {tab === "themes" && <ThemesTab />}
       {tab === "hosts" && <HostsTab />}
+      {tab === "recordings" && <RecordingsTab />}
+      {tab === "logs" && <LogsTab />}
       {tab === "import" && <ImportTab />}
     </Modal>
   );
@@ -971,6 +987,213 @@ function HostsTab() {
       )}
     </>
   );
+}
+
+// --------------------------------------------------------------- gravações
+
+function RecordingsTab() {
+  const [items, setItems] = useState<Recording[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [viewing, setViewing] = useState<{ rec: Recording; text: string } | null>(null);
+  const [deleting, setDeleting] = useState<Recording | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = async () => {
+    setLoading(true);
+    try {
+      setItems(await api.recordingList());
+      setError(null);
+    } catch (e) {
+      setError(asAppError(e).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void reload();
+  }, []);
+
+  const view = async (rec: Recording) => {
+    try {
+      setViewing({ rec, text: await api.recordingRead(rec.path) });
+    } catch (e) {
+      setError(asAppError(e).message);
+    }
+  };
+
+  return (
+    <>
+      <div className="muted" style={{ fontSize: 11 }}>
+        Gravações da saída do terminal (texto, sem códigos de cor). Ligue pelo botão ●
+        na barra de ferramentas ou marque "gravar automaticamente" nas configurações.
+        <br />
+        <b>Atenção:</b> o arquivo contém tudo que passou pela tela — inclusive segredos
+        exibidos. Os arquivos nascem com permissão 0600.
+      </div>
+
+      {error && <div className="alert alert--danger">{error}</div>}
+      {loading && <Spinner />}
+
+      {items.map((r) => (
+        <div
+          key={r.path}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 0",
+            borderBottom: "1px solid var(--border)",
+          }}
+        >
+          <FileText size={14} color="var(--text-faint)" />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="file__name">{r.name}</div>
+            <div className="muted" style={{ fontSize: 10 }}>
+              {humanBytes(r.size)} · {new Date(r.modified * 1000).toLocaleString("pt-BR")}
+            </div>
+          </div>
+          <button className="icon-btn" title="Ver conteúdo" onClick={() => void view(r)}>
+            <Eye size={13} />
+          </button>
+          <button className="icon-btn" title="Excluir" onClick={() => setDeleting(r)}>
+            <Trash2 size={13} color="var(--danger)" />
+          </button>
+        </div>
+      ))}
+
+      {!loading && items.length === 0 && (
+        <div className="muted">Nenhuma gravação ainda.</div>
+      )}
+
+      <button className="btn" style={{ alignSelf: "start" }} onClick={() => void reload()}>
+        <RefreshCw size={13} style={{ verticalAlign: -2 }} /> Recarregar
+      </button>
+
+      {viewing && (
+        <TextViewer
+          title={viewing.rec.name}
+          text={viewing.text}
+          onClose={() => setViewing(null)}
+        />
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          title="Excluir gravação"
+          danger
+          confirmLabel="Excluir"
+          message={
+            <>
+              Excluir <b>{deleting.name}</b>? O arquivo é apagado do disco.
+            </>
+          }
+          onConfirm={() => {
+            const r = deleting;
+            setDeleting(null);
+            void (async () => {
+              await api.recordingDelete(r.path);
+              await reload();
+            })();
+          }}
+          onCancel={() => setDeleting(null)}
+        />
+      )}
+    </>
+  );
+}
+
+// --------------------------------------------------------------------- logs
+
+function LogsTab() {
+  const [text, setText] = useState("");
+  const [path, setPath] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const reload = async () => {
+    setLoading(true);
+    try {
+      const [t, p] = await Promise.all([api.logsRead(), api.logsPath()]);
+      setText(t);
+      setPath(p);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void reload();
+  }, []);
+
+  return (
+    <>
+      <div className="muted" style={{ fontSize: 11 }}>
+        Log da aplicação — conexões, túneis e falhas do backend. Útil para entender por
+        que uma conexão caiu. Segredos nunca são registrados.
+        <br />
+        <code style={{ wordBreak: "break-all" }}>{path}</code>
+      </div>
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button className="btn" onClick={() => void reload()}>
+          <RefreshCw size={13} style={{ verticalAlign: -2 }} /> Recarregar
+        </button>
+        <button
+          className="btn"
+          onClick={() =>
+            void (async () => {
+              await api.logsClear();
+              await reload();
+            })()
+          }
+        >
+          <Trash2 size={13} style={{ verticalAlign: -2 }} /> Limpar
+        </button>
+        {loading && <Spinner />}
+      </div>
+
+      <pre className="logview">{text || "(vazio)"}</pre>
+    </>
+  );
+}
+
+/** Visualizador de texto simples, com rolagem e fonte monoespaçada. */
+function TextViewer({
+  title,
+  text,
+  onClose,
+}: {
+  title: string;
+  text: string;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      title={title}
+      wide
+      tall
+      onClose={onClose}
+      footer={
+        <button className="btn btn--primary" onClick={onClose}>
+          Fechar
+        </button>
+      }
+    >
+      <pre className="logview">{text || "(vazio)"}</pre>
+    </Modal>
+  );
+}
+
+function humanBytes(n: number) {
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
 // ------------------------------------------------------------------- import

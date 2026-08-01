@@ -1023,6 +1023,28 @@ textarea:focus {
   flex: none;
 }
 
+/* Botão de gravação ativo: vermelho, para não passar despercebido. */
+.icon-btn[data-recording="true"] {
+  color: var(--danger);
+}
+
+/* Visualizador de log/gravação. */
+.logview {
+  flex: 1;
+  min-height: 200px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Rodapé da paleta com os modificadores disponíveis. */
 .palette__hint {
   padding: 6px 14px;

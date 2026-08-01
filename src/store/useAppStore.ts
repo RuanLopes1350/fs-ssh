@@ -26,6 +26,8 @@ export interface Pane {
   status: "empty" | "connecting" | "open" | "closed";
   sessionId: string | null;
   detail: string | null;
+  /** Caminho da gravação em andamento, se houver. */
+  recording?: string | null;
   /** Tentativa atual do auto-reconnect (0 = não está reconectando). */
   reconnectAttempt: number;
 }
@@ -52,6 +54,8 @@ export interface Settings {
   broadcastSkipProd: boolean;
   /** Reconectar sozinho quando a conexão cai (com backoff). */
   autoReconnect: boolean;
+  /** Gravar a saída de toda sessão nova automaticamente. */
+  autoRecord: boolean;
 }
 
 export const FALLBACK_PALETTE: TerminalPalette = {
@@ -221,6 +225,7 @@ export const useAppStore = create<AppStore>()(
         restoreTabs: true,
         broadcastSkipProd: true,
         autoReconnect: true,
+        autoRecord: false,
       },
       lastSessionConnectionIds: [],
 
