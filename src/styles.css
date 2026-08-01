@@ -965,6 +965,14 @@ textarea:focus {
   background: var(--accent);
 }
 
+/* Rodapé da paleta com os modificadores disponíveis. */
+.palette__hint {
+  padding: 6px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
 /* Contador de painéis na aba (⊞2, ⊞3…). */
 .tab__panes {
   font-size: 10px;

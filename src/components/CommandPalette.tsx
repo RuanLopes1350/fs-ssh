@@ -12,17 +12,20 @@ export type PaletteAction =
 /**
  * Paleta ⌘K.
  *
- * Faz duas coisas: conectar a um servidor e disparar um snippet na aba ativa.
- * Snippets só aparecem quando há sessão aberta, porque sem terminal não há para
- * onde mandar o comando.
+ * Faz duas coisas: conectar a um servidor (Enter = nova aba, ⌘Enter = split no
+ * painel ativo) e disparar um snippet na aba ativa. Snippets só aparecem quando
+ * há sessão aberta, porque sem terminal não há para onde mandar o comando.
  */
 export function CommandPalette({
   hasSession,
+  canSplit,
   onRun,
   onClose,
 }: {
   hasSession: boolean;
-  onRun: (action: PaletteAction) => void;
+  /** Há uma aba ativa que pode receber um split. */
+  canSplit: boolean;
+  onRun: (action: PaletteAction, split: boolean) => void;
   onClose: () => void;
 }) {
   const connections = useAppStore((s) => s.connections);
@@ -64,7 +67,7 @@ export function CommandPalette({
     } else if (e.key === "Enter") {
       e.preventDefault();
       const item = items[index];
-      if (item) onRun(item);
+      if (item) onRun(item, e.metaKey || e.ctrlKey);
     } else if (e.key === "Escape") {
       onClose();
     }
@@ -90,7 +93,7 @@ export function CommandPalette({
               className="palette__item"
               data-active={i === index}
               onMouseEnter={() => setIndex(i)}
-              onClick={() => onRun(item)}
+              onClick={(e) => onRun(item, e.metaKey || e.ctrlKey)}
             >
               {item.type === "connect" ? (
                 <>
@@ -122,6 +125,15 @@ export function CommandPalette({
             </div>
           )}
         </div>
+        {canSplit && (
+          <div className="palette__hint">
+            <span className="kbd">↵</span> nova aba
+            <span className="kbd" style={{ marginLeft: 10 }}>
+              ⌘↵
+            </span>{" "}
+            split no painel ativo
+          </div>
+        )}
       </div>
     </div>
   );

@@ -345,10 +345,18 @@ export default function App() {
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
   const activePane = activePaneOf(activeTab);
 
-  const runPalette = (action: PaletteAction) => {
+  /** Abre a conexão num split da aba ativa (nova aba se não houver nenhuma). */
+  const connectInSplit = (connection: Connection, dir: SplitDir) => {
+    const st = useAppStore.getState();
+    const tab = st.tabs.find((t) => t.id === st.activeTabId);
+    requestConnect(connection, tab ? { type: "split", tabId: tab.id, dir } : undefined);
+  };
+
+  const runPalette = (action: PaletteAction, split: boolean) => {
     setPaletteOpen(false);
     if (action.type === "connect") {
-      requestConnect(action.connection);
+      if (split) connectInSplit(action.connection, "row");
+      else requestConnect(action.connection);
       return;
     }
     if (!activePane?.sessionId) return;
@@ -605,6 +613,7 @@ export default function App() {
       {sidebarOpen && (
         <Sidebar
           onConnect={requestConnect}
+          onConnectSplit={activeTab ? connectInSplit : undefined}
           onEdit={setEditing}
           onDuplicate={(c) => void duplicate(c)}
           onDelete={setDeleting}
@@ -792,6 +801,7 @@ export default function App() {
       {paletteOpen && (
         <CommandPalette
           hasSession={!!activePane?.sessionId}
+          canSplit={!!activeTab}
           onRun={runPalette}
           onClose={() => setPaletteOpen(false)}
         />

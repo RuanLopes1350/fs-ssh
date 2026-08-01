@@ -15,7 +15,7 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. Feito com **Taur
 ### Terminal
 - xterm.js com renderização **WebGL** (fallback para DOM), 20 000 linhas de scrollback, Unicode 11, links clicáveis.
 - Abas com cor e status por conexão, zoom de fonte (⌘+/⌘−), **busca no scrollback (⌘F)**.
-- **Split panes**: ⌘D divide lado a lado, ⌘⇧D empilha — cada painel é uma sessão SSH independente ao mesmo servidor, com divisores arrastáveis, anel de foco e ⌘⌥setas para circular entre painéis.
+- **Split panes**: ⌘D divide lado a lado, ⌘⇧D empilha — cada painel é uma sessão SSH independente, com divisores arrastáveis, anel de foco e ⌘⌥setas para circular entre painéis. Para abrir **outro servidor** num split: ⌘K e **⌘Enter** na conexão, ou botão direito na sidebar → "Conectar em split".
 - **Broadcast (cluster mode)**: o que você digita vai para todas as abas abertas — com selo visual, contorno âmbar e, por padrão, **ignorando abas PROD**.
 - **Snippets** com CRUD, disparados pela paleta (⌘K).
 - **Auto-reconnect com backoff** (2s → 30s, 5 tentativas) para quedas de rede — nunca para `exit` limpo ou fechamento manual.

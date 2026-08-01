@@ -12,6 +12,8 @@ import {
   Plus,
   Search,
   Settings2,
+  SquareSplitHorizontal,
+  SquareSplitVertical,
   Trash2,
 } from "lucide-react";
 
@@ -29,6 +31,7 @@ const SECTION_ROOT = "__sem_pasta__";
 
 export function Sidebar({
   onConnect,
+  onConnectSplit,
   onEdit,
   onDuplicate,
   onDelete,
@@ -36,6 +39,8 @@ export function Sidebar({
   onManage,
 }: {
   onConnect: (c: Connection) => void;
+  /** Presente quando há aba ativa para receber um split. */
+  onConnectSplit?: (c: Connection, dir: "row" | "col") => void;
   onEdit: (c: Connection) => void;
   onDuplicate: (c: Connection) => void;
   onDelete: (c: Connection) => void;
@@ -348,6 +353,20 @@ export function Sidebar({
               icon: <Plug size={13} />,
               onSelect: () => onConnect(menu.conn),
             },
+            ...(onConnectSplit
+              ? [
+                  {
+                    label: "Conectar em split (lado a lado)",
+                    icon: <SquareSplitHorizontal size={13} />,
+                    onSelect: () => onConnectSplit(menu.conn, "row" as const),
+                  },
+                  {
+                    label: "Conectar em split (empilhado)",
+                    icon: <SquareSplitVertical size={13} />,
+                    onSelect: () => onConnectSplit(menu.conn, "col" as const),
+                  },
+                ]
+              : []),
             {
               label: "Editar…",
               icon: <Pencil size={13} />,
