@@ -125,9 +125,19 @@ export class TerminalSession {
       return;
     }
     this.container = container;
-    this.term.open(container);
-    this.enableWebgl();
 
+    if (this.term.element) {
+      // O xterm só aceita `open()` uma vez. Quando o painel muda de posição na
+      // árvore de splits, o React recria o container — mover o elemento
+      // existente preserva scrollback e renderer; reabrir deixaria o terminal
+      // em branco.
+      container.appendChild(this.term.element);
+    } else {
+      this.term.open(container);
+      this.enableWebgl();
+    }
+
+    this.resizeObserver?.disconnect();
     this.resizeObserver = new ResizeObserver(() => this.fitSoon());
     this.resizeObserver.observe(container);
     this.fitSoon();
