@@ -965,6 +965,60 @@ textarea:focus {
   background: var(--accent);
 }
 
+/* Seletor de servidor dentro de um painel recém-dividido. */
+.pane-picker {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--bg);
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane-picker__box {
+  width: 100%;
+  max-width: 380px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 12px 32px #0007;
+}
+
+.pane-picker__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pane-picker__head input {
+  border: none;
+  background: transparent;
+  padding: 4px 2px;
+}
+
+.pane-picker__list {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.pane-picker__tag {
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 0 4px;
+  flex: none;
+}
+
 /* Rodapé da paleta com os modificadores disponíveis. */
 .palette__hint {
   padding: 6px 14px;

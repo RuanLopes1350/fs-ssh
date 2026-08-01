@@ -37,6 +37,7 @@ import { SftpPanel } from "./sftp/SftpPanel";
 import { Sidebar } from "./sidebar/Sidebar";
 import { TunnelsPanel } from "./tunnels/TunnelsPanel";
 import { setInputRouter, TerminalSession, terminals } from "./terminal/session";
+import { PanePicker } from "./terminal/PanePicker";
 import { TerminalSearchBar } from "./terminal/SearchBar";
 import { TerminalView } from "./terminal/TerminalView";
 import {
@@ -68,6 +69,7 @@ type Placement = { type: "newtab" } | { type: "split"; tabId: string; dir: Split
 
 export default function App() {
   const tabs = useAppStore((s) => s.tabs);
+  const connections = useAppStore((s) => s.connections);
   const activeTabId = useAppStore((s) => s.activeTabId);
   const sftpOpen = useAppStore((s) => s.sftpOpen);
   const dockerOpen = useAppStore((s) => s.dockerOpen);
@@ -149,7 +151,27 @@ export default function App() {
           store.addTab(pane);
         }
       } else {
-        store.updatePane(paneId, { status: "connecting", detail: null });
+        // Retry ou painel vazio do split escolhendo servidor: garante o
+        // terminal e assume a identidade visual da conexão escolhida.
+        if (!terminals.has(paneId)) {
+          terminals.set(
+            paneId,
+            new TerminalSession(
+              connection.id,
+              store.paletteFor(connection.id),
+              store.fontSize,
+            ),
+          );
+        }
+        store.updatePane(paneId, {
+          connectionId: connection.id,
+          title: connection.name,
+          color: connection.color,
+          icon: connection.icon,
+          isProduction: connection.isProduction,
+          status: "connecting",
+          detail: null,
+        });
       }
 
       pending.current = { paneId, connection, secret, jumpSecret };
@@ -278,15 +300,38 @@ export default function App() {
     void startConnect(connection);
   };
 
-  /** Divide o painel ativo, conectando de novo ao mesmo servidor. */
+  /**
+   * Divide o painel ativo abrindo um painel VAZIO com o seletor de servidor —
+   * a sessão de origem vem pré-selecionada (Enter duplica), Esc desfaz o split.
+   */
   const splitActive = (dir: SplitDir) => {
     const st = useAppStore.getState();
     const tab = st.tabs.find((t) => t.id === st.activeTabId);
-    const pane = activePaneOf(tab);
-    if (!tab || !pane) return;
-    const connection = st.connections.find((c) => c.id === pane.connectionId);
-    if (!connection) return;
-    requestConnect(connection, { type: "split", tabId: tab.id, dir });
+    const origin = activePaneOf(tab);
+    if (!tab || !origin) return;
+    st.splitPane(tab.id, dir, {
+      id: crypto.randomUUID(),
+      connectionId: origin.connectionId,
+      title: "Novo painel",
+      color: origin.color,
+      icon: origin.icon,
+      isProduction: false,
+      status: "empty",
+      sessionId: null,
+      detail: null,
+      reconnectAttempt: 0,
+    });
+  };
+
+  /** Servidor escolhido no seletor de um painel vazio. */
+  const choosePane = (pane: Pane, connection: Connection) => {
+    pending.current = { paneId: pane.id, connection };
+    placement.current = null;
+    if (connection.isProduction) {
+      setProdConfirm(connection);
+      return;
+    }
+    void startConnect(connection);
   };
 
   /** Tenta de novo no mesmo painel, reaproveitando o terminal e o scrollback. */
@@ -502,6 +547,26 @@ export default function App() {
     if (!pane) return null;
     const multi = tab.panes.length > 1;
     const focused = tab.activePaneId === pane.id;
+
+    if (pane.status === "empty") {
+      return (
+        <div
+          className="pane-slot"
+          data-focused={multi && focused}
+          onMouseDownCapture={() => {
+            if (!focused) useAppStore.getState().setActivePane(tab.id, pane.id);
+          }}
+        >
+          <PanePicker
+            connections={connections}
+            currentId={pane.connectionId || null}
+            onChoose={(c) => choosePane(pane, c)}
+            onCancel={() => void closePane(pane.id)}
+          />
+        </div>
+      );
+    }
+
     return (
       <div
         className="pane-slot"

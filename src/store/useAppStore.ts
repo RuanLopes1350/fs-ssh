@@ -22,7 +22,8 @@ export interface Pane {
   color: string;
   icon: string;
   isProduction: boolean;
-  status: "connecting" | "open" | "closed";
+  /** `empty` = painel recém-dividido mostrando o seletor de servidor. */
+  status: "empty" | "connecting" | "open" | "closed";
   sessionId: string | null;
   detail: string | null;
   /** Tentativa atual do auto-reconnect (0 = não está reconectando). */
@@ -131,7 +132,9 @@ export function activePaneOf(tab: Tab | null | undefined): Pane | null {
 
 /** Conexões de todos os painéis abertos — base da restauração de sessão. */
 function snapshotSession(tabs: Tab[]): string[] {
-  return [...new Set(tabs.flatMap((t) => t.panes.map((p) => p.connectionId)))];
+  return [
+    ...new Set(tabs.flatMap((t) => t.panes.map((p) => p.connectionId).filter(Boolean))),
+  ];
 }
 
 interface AppStore {
