@@ -13,8 +13,9 @@ import type {
   TerminalPalette,
 } from "../lib/types";
 
-export interface Tab {
-  /** Id da aba — também é a chave do `TerminalSession` no mapa de terminais. */
+/** Uma sessão SSH viva dentro de uma aba (a aba pode ter vários painéis). */
+export interface Pane {
+  /** Id do painel — também é a chave do `TerminalSession` no mapa de terminais. */
   id: string;
   connectionId: string;
   title: string;
@@ -26,6 +27,20 @@ export interface Tab {
   detail: string | null;
   /** Tentativa atual do auto-reconnect (0 = não está reconectando). */
   reconnectAttempt: number;
+}
+
+export type SplitDir = "row" | "col";
+
+/** Árvore binária de layout: folha = painel, nó = divisão com proporção. */
+export type PaneLayout =
+  | { type: "leaf"; paneId: string }
+  | { type: "split"; id: string; dir: SplitDir; ratio: number; a: PaneLayout; b: PaneLayout };
+
+export interface Tab {
+  id: string;
+  panes: Pane[];
+  layout: PaneLayout;
+  activePaneId: string;
 }
 
 /** Preferências persistidas — a tela de configurações edita isto. */
@@ -61,6 +76,64 @@ export const FALLBACK_PALETTE: TerminalPalette = {
   brightWhite: "#f8fafc",
 };
 
+// ------------------------------------------------- manipulação da árvore
+
+function replaceLeaf(node: PaneLayout, paneId: string, next: PaneLayout): PaneLayout {
+  if (node.type === "leaf") return node.paneId === paneId ? next : node;
+  return {
+    ...node,
+    a: replaceLeaf(node.a, paneId, next),
+    b: replaceLeaf(node.b, paneId, next),
+  };
+}
+
+/** Remove a folha; o split pai colapsa para o irmão. `null` = árvore vazia. */
+function removeLeaf(node: PaneLayout, paneId: string): PaneLayout | null {
+  if (node.type === "leaf") return node.paneId === paneId ? null : node;
+  const a = removeLeaf(node.a, paneId);
+  const b = removeLeaf(node.b, paneId);
+  if (a === null) return b;
+  if (b === null) return a;
+  return { ...node, a, b };
+}
+
+function setRatio(node: PaneLayout, splitId: string, ratio: number): PaneLayout {
+  if (node.type === "leaf") return node;
+  if (node.id === splitId) return { ...node, ratio };
+  return { ...node, a: setRatio(node.a, splitId, ratio), b: setRatio(node.b, splitId, ratio) };
+}
+
+// -------------------------------------------------------------- helpers
+
+export function findPane(tabs: Tab[], paneId: string): { tab: Tab; pane: Pane } | null {
+  for (const tab of tabs) {
+    const pane = tab.panes.find((p) => p.id === paneId);
+    if (pane) return { tab, pane };
+  }
+  return null;
+}
+
+export function findPaneBySession(
+  tabs: Tab[],
+  sessionId: string,
+): { tab: Tab; pane: Pane } | null {
+  for (const tab of tabs) {
+    const pane = tab.panes.find((p) => p.sessionId === sessionId);
+    if (pane) return { tab, pane };
+  }
+  return null;
+}
+
+export function activePaneOf(tab: Tab | null | undefined): Pane | null {
+  if (!tab) return null;
+  return tab.panes.find((p) => p.id === tab.activePaneId) ?? tab.panes[0] ?? null;
+}
+
+/** Conexões de todos os painéis abertos — base da restauração de sessão. */
+function snapshotSession(tabs: Tab[]): string[] {
+  return [...new Set(tabs.flatMap((t) => t.panes.map((p) => p.connectionId)))];
+}
+
 interface AppStore {
   connections: Connection[];
   folders: Folder[];
@@ -92,13 +165,19 @@ interface AppStore {
   reloadIdentities: () => Promise<void>;
 
   paletteFor: (connectionId: string) => TerminalPalette;
-  /** Reaplica o tema de cada aba aberta — chamado após salvar/importar temas. */
+  /** Reaplica o tema de cada painel aberto — chamado após salvar/importar temas. */
   applyPalettes: () => void;
 
-  addTab: (tab: Tab) => void;
-  updateTab: (id: string, patch: Partial<Tab>) => void;
+  addTab: (pane: Pane) => void;
+  /** Divide o painel ativo da aba, colocando `pane` na nova metade. */
+  splitPane: (tabId: string, dir: SplitDir, pane: Pane) => void;
+  updatePane: (paneId: string, patch: Partial<Pane>) => void;
+  /** Remove o painel; se era o último da aba, a aba vai junto. */
+  removePane: (paneId: string) => void;
   closeTab: (id: string) => void;
   setActiveTab: (id: string | null) => void;
+  setActivePane: (tabId: string, paneId: string) => void;
+  setSplitRatio: (tabId: string, splitId: string, ratio: number) => void;
 
   setSearch: (s: string) => void;
   toggleTag: (id: string) => void;
@@ -111,11 +190,6 @@ interface AppStore {
   toggleFolderCollapsed: (id: string) => void;
   setSettings: (patch: Partial<Settings>) => void;
   clearLastSession: () => void;
-}
-
-/** Recalcula a lista persistida de conexões abertas a partir das abas. */
-function snapshotSession(tabs: Tab[]): string[] {
-  return [...new Set(tabs.map((t) => t.connectionId))];
 }
 
 export const useAppStore = create<AppStore>()(
@@ -184,12 +258,20 @@ export const useAppStore = create<AppStore>()(
 
       applyPalettes: () => {
         for (const tab of get().tabs) {
-          terminals.get(tab.id)?.setPalette(get().paletteFor(tab.connectionId));
+          for (const pane of tab.panes) {
+            terminals.get(pane.id)?.setPalette(get().paletteFor(pane.connectionId));
+          }
         }
       },
 
-      addTab: (tab) =>
+      addTab: (pane) =>
         set((s) => {
+          const tab: Tab = {
+            id: crypto.randomUUID(),
+            panes: [pane],
+            layout: { type: "leaf", paneId: pane.id },
+            activePaneId: pane.id,
+          };
           const tabs = [...s.tabs, tab];
           return {
             tabs,
@@ -198,10 +280,61 @@ export const useAppStore = create<AppStore>()(
           };
         }),
 
-      updateTab: (id, patch) =>
+      splitPane: (tabId, dir, pane) =>
+        set((s) => {
+          const tabs = s.tabs.map((t) => {
+            if (t.id !== tabId) return t;
+            const target = t.activePaneId;
+            const split: PaneLayout = {
+              type: "split",
+              id: crypto.randomUUID(),
+              dir,
+              ratio: 0.5,
+              a: { type: "leaf", paneId: target },
+              b: { type: "leaf", paneId: pane.id },
+            };
+            return {
+              ...t,
+              panes: [...t.panes, pane],
+              layout: replaceLeaf(t.layout, target, split),
+              activePaneId: pane.id,
+            };
+          });
+          return { tabs, lastSessionConnectionIds: snapshotSession(tabs) };
+        }),
+
+      updatePane: (paneId, patch) =>
         set((s) => ({
-          tabs: s.tabs.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+          tabs: s.tabs.map((t) =>
+            t.panes.some((p) => p.id === paneId)
+              ? {
+                  ...t,
+                  panes: t.panes.map((p) => (p.id === paneId ? { ...p, ...patch } : p)),
+                }
+              : t,
+          ),
         })),
+
+      removePane: (paneId) =>
+        set((s) => {
+          const tabs: Tab[] = [];
+          for (const t of s.tabs) {
+            if (!t.panes.some((p) => p.id === paneId)) {
+              tabs.push(t);
+              continue;
+            }
+            const layout = removeLeaf(t.layout, paneId);
+            if (layout === null) continue; // último painel: a aba sai junto
+            const panes = t.panes.filter((p) => p.id !== paneId);
+            const activePaneId =
+              t.activePaneId === paneId ? (panes[panes.length - 1]?.id ?? "") : t.activePaneId;
+            tabs.push({ ...t, panes, layout, activePaneId });
+          }
+          const activeTabId = tabs.some((t) => t.id === s.activeTabId)
+            ? s.activeTabId
+            : (tabs[tabs.length - 1]?.id ?? null);
+          return { tabs, activeTabId, lastSessionConnectionIds: snapshotSession(tabs) };
+        }),
 
       closeTab: (id) =>
         set((s) => {
@@ -212,6 +345,17 @@ export const useAppStore = create<AppStore>()(
         }),
 
       setActiveTab: (id) => set({ activeTabId: id }),
+      setActivePane: (tabId, paneId) =>
+        set((s) => ({
+          tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, activePaneId: paneId } : t)),
+        })),
+      setSplitRatio: (tabId, splitId, ratio) =>
+        set((s) => ({
+          tabs: s.tabs.map((t) =>
+            t.id === tabId ? { ...t, layout: setRatio(t.layout, splitId, ratio) } : t,
+          ),
+        })),
+
       setSearch: (search) => set({ search }),
       toggleTag: (id) =>
         set((s) => ({

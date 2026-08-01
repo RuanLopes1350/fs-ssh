@@ -12,6 +12,7 @@ import {
   Radio,
   RotateCw,
   Settings as SettingsIcon,
+  SquareSplitHorizontal,
   Terminal as TerminalIcon,
   TriangleAlert,
   X,
@@ -38,7 +39,16 @@ import { TunnelsPanel } from "./tunnels/TunnelsPanel";
 import { setInputRouter, TerminalSession, terminals } from "./terminal/session";
 import { TerminalSearchBar } from "./terminal/SearchBar";
 import { TerminalView } from "./terminal/TerminalView";
-import { useAppStore, type Tab } from "./store/useAppStore";
+import {
+  activePaneOf,
+  findPane,
+  findPaneBySession,
+  useAppStore,
+  type Pane,
+  type PaneLayout,
+  type SplitDir,
+  type Tab,
+} from "./store/useAppStore";
 
 const encoder = new TextEncoder();
 
@@ -47,11 +57,14 @@ const RECONNECT_DELAYS_MS = [2000, 4000, 8000, 15000, 30000];
 
 /** Tentativa de conexão em andamento, retomada depois de um diálogo. */
 interface Pending {
-  tabId: string;
+  paneId: string;
   connection: Connection;
   secret?: string;
   jumpSecret?: string;
 }
+
+/** Onde o próximo painel entra: aba nova ou split da aba indicada. */
+type Placement = { type: "newtab" } | { type: "split"; tabId: string; dir: SplitDir };
 
 export default function App() {
   const tabs = useAppStore((s) => s.tabs);
@@ -76,6 +89,7 @@ export default function App() {
   const [broadcastConfirm, setBroadcastConfirm] = useState(false);
   const [restoreOffer, setRestoreOffer] = useState<Connection[] | null>(null);
   const pending = useRef<Pending | null>(null);
+  const placement = useRef<Placement | null>(null);
   const reconnectTimers = useRef(new Map<string, number>());
 
   useEffect(() => {
@@ -92,23 +106,23 @@ export default function App() {
     })();
   }, [loadAll]);
 
-  const cancelReconnect = useCallback((tabId: string) => {
-    const timer = reconnectTimers.current.get(tabId);
+  const cancelReconnect = useCallback((paneId: string) => {
+    const timer = reconnectTimers.current.get(paneId);
     if (timer !== undefined) {
       window.clearTimeout(timer);
-      reconnectTimers.current.delete(tabId);
+      reconnectTimers.current.delete(paneId);
     }
   }, []);
 
   const startConnect = useCallback(
     async (connection: Connection, secret?: string, jumpSecret?: string) => {
       const store = useAppStore.getState();
-      const existingTabId = pending.current?.tabId;
-      const tabId = existingTabId ?? crypto.randomUUID();
+      const existingPaneId = pending.current?.paneId;
+      const paneId = existingPaneId ?? crypto.randomUUID();
 
-      if (!existingTabId) {
-        const tab: Tab = {
-          id: tabId,
+      if (!existingPaneId) {
+        const pane: Pane = {
+          id: paneId,
           connectionId: connection.id,
           title: connection.name,
           color: connection.color,
@@ -119,25 +133,31 @@ export default function App() {
           detail: null,
           reconnectAttempt: 0,
         };
-        store.addTab(tab);
         terminals.set(
-          tabId,
+          paneId,
           new TerminalSession(
             connection.id,
             store.paletteFor(connection.id),
             store.fontSize,
           ),
         );
+        const where = placement.current ?? { type: "newtab" as const };
+        placement.current = null;
+        if (where.type === "split") {
+          store.splitPane(where.tabId, where.dir, pane);
+        } else {
+          store.addTab(pane);
+        }
       } else {
-        store.updateTab(tabId, { status: "connecting", detail: null });
+        store.updatePane(paneId, { status: "connecting", detail: null });
       }
 
-      pending.current = { tabId, connection, secret, jumpSecret };
+      pending.current = { paneId, connection, secret, jumpSecret };
 
       try {
-        const session = terminals.get(tabId)!;
+        const session = terminals.get(paneId)!;
         const info = await session.connect(secret, jumpSecret);
-        useAppStore.getState().updateTab(tabId, {
+        useAppStore.getState().updatePane(paneId, {
           status: "open",
           sessionId: info.sessionId,
           detail: null,
@@ -149,21 +169,21 @@ export default function App() {
         void api.forwardAutostart(info.sessionId).then((r) => {
           if (r.errors.length) {
             terminals
-              .get(tabId)
+              .get(paneId)
               ?.term.write(`\r\n\x1b[33m── túneis: ${r.errors.join("; ")} ──\x1b[0m\r\n`);
           }
         });
       } catch (raw) {
         const e = asAppError(raw);
         if (!handleConnectError(e)) {
-          // O erro fica preso à aba que falhou. Um banner global não diria de
-          // qual servidor é a falha quando há várias abas abertas.
-          useAppStore.getState().updateTab(tabId, { status: "closed", detail: e.message });
-          terminals.get(tabId)?.markClosed(e.message);
+          // O erro fica preso ao painel que falhou. Um banner global não diria
+          // de qual servidor é a falha quando há vários abertos.
+          useAppStore.getState().updatePane(paneId, { status: "closed", detail: e.message });
+          terminals.get(paneId)?.markClosed(e.message);
           pending.current = null;
           // Se esta tentativa fazia parte de um auto-reconnect, agenda a próxima.
-          const tab = useAppStore.getState().tabs.find((t) => t.id === tabId);
-          if (tab && tab.reconnectAttempt > 0) scheduleReconnect(tabId);
+          const found = findPane(useAppStore.getState().tabs, paneId);
+          if (found && found.pane.reconnectAttempt > 0) scheduleReconnect(paneId);
         }
       }
     },
@@ -171,52 +191,52 @@ export default function App() {
     [],
   );
 
-  /** Agenda a próxima tentativa de reconexão da aba, com backoff. */
+  /** Agenda a próxima tentativa de reconexão do painel, com backoff. */
   const scheduleReconnect = useCallback(
-    (tabId: string) => {
-      const { tabs: current, updateTab } = useAppStore.getState();
-      const tab = current.find((t) => t.id === tabId);
-      if (!tab) return;
-      const attempt = tab.reconnectAttempt + 1;
+    (paneId: string) => {
+      const { tabs: current, updatePane } = useAppStore.getState();
+      const found = findPane(current, paneId);
+      if (!found) return;
+      const attempt = found.pane.reconnectAttempt + 1;
       if (attempt > RECONNECT_DELAYS_MS.length) {
-        updateTab(tabId, { reconnectAttempt: 0 });
+        updatePane(paneId, { reconnectAttempt: 0 });
         return;
       }
-      updateTab(tabId, { reconnectAttempt: attempt });
+      updatePane(paneId, { reconnectAttempt: attempt });
 
       const timer = window.setTimeout(() => {
-        reconnectTimers.current.delete(tabId);
+        reconnectTimers.current.delete(paneId);
         const st = useAppStore.getState();
-        const t = st.tabs.find((x) => x.id === tabId);
-        const connection = st.connections.find((c) => c.id === t?.connectionId);
-        if (!t || !connection || t.status !== "closed") return;
-        pending.current = { tabId, connection };
+        const f = findPane(st.tabs, paneId);
+        const connection = st.connections.find((c) => c.id === f?.pane.connectionId);
+        if (!f || !connection || f.pane.status !== "closed") return;
+        pending.current = { paneId, connection };
         void startConnect(connection);
       }, RECONNECT_DELAYS_MS[attempt - 1]);
-      reconnectTimers.current.set(tabId, timer);
+      reconnectTimers.current.set(paneId, timer);
     },
     [startConnect],
   );
 
-  // O backend avisa quando o canal cai (logout, rede, kill). Sem isso a aba
-  // ficaria "aberta" para sempre depois de um `exit`.
+  // O backend avisa quando o canal cai (logout, rede, kill). Sem isso o painel
+  // ficaria "aberto" para sempre depois de um `exit`.
   useEffect(() => {
     const un = listen<SessionClosed>("session-closed", (e) => {
       const { sessionId, reason, exitStatus } = e.payload;
-      const { tabs: current, updateTab, settings } = useAppStore.getState();
-      const tab = current.find((t) => t.sessionId === sessionId);
-      if (!tab) return;
-      const wasOpen = tab.status === "open";
+      const { tabs: current, updatePane, settings } = useAppStore.getState();
+      const found = findPaneBySession(current, sessionId);
+      if (!found) return;
+      const wasOpen = found.pane.status === "open";
       terminals
-        .get(tab.id)
+        .get(found.pane.id)
         ?.markClosed(exitStatus != null ? `${reason} (código ${exitStatus})` : reason);
-      updateTab(tab.id, { status: "closed", detail: reason });
+      updatePane(found.pane.id, { status: "closed", detail: reason });
 
       // Auto-reconnect só para queda inesperada: `exit` limpo (exitStatus
       // preenchido) e fechamento pelo usuário não contam.
       const unexpected =
         wasOpen && exitStatus == null && reason !== "encerrada pelo usuário";
-      if (unexpected && settings.autoReconnect) scheduleReconnect(tab.id);
+      if (unexpected && settings.autoReconnect) scheduleReconnect(found.pane.id);
     });
     return () => {
       void un.then((f) => f());
@@ -248,8 +268,9 @@ export default function App() {
     return false;
   };
 
-  const requestConnect = (connection: Connection) => {
+  const requestConnect = (connection: Connection, where?: Placement) => {
     pending.current = null;
+    placement.current = where ?? null;
     if (connection.isProduction) {
       setProdConfirm(connection);
       return;
@@ -257,26 +278,53 @@ export default function App() {
     void startConnect(connection);
   };
 
-  /** Tenta de novo na mesma aba, reaproveitando o terminal e o scrollback. */
-  const retry = (tab: Tab) => {
-    cancelReconnect(tab.id);
-    useAppStore.getState().updateTab(tab.id, { reconnectAttempt: 0 });
+  /** Divide o painel ativo, conectando de novo ao mesmo servidor. */
+  const splitActive = (dir: SplitDir) => {
+    const st = useAppStore.getState();
+    const tab = st.tabs.find((t) => t.id === st.activeTabId);
+    const pane = activePaneOf(tab);
+    if (!tab || !pane) return;
+    const connection = st.connections.find((c) => c.id === pane.connectionId);
+    if (!connection) return;
+    requestConnect(connection, { type: "split", tabId: tab.id, dir });
+  };
+
+  /** Tenta de novo no mesmo painel, reaproveitando o terminal e o scrollback. */
+  const retry = (pane: Pane) => {
+    cancelReconnect(pane.id);
+    useAppStore.getState().updatePane(pane.id, { reconnectAttempt: 0 });
     const connection = useAppStore
       .getState()
-      .connections.find((c) => c.id === tab.connectionId);
+      .connections.find((c) => c.id === pane.connectionId);
     if (!connection) return;
-    pending.current = { tabId: tab.id, connection };
+    pending.current = { paneId: pane.id, connection };
     void startConnect(connection);
   };
 
-  const closeTab = useCallback(
-    async (id: string) => {
-      cancelReconnect(id);
-      const session = terminals.get(id);
+  const closePane = useCallback(
+    async (paneId: string) => {
+      cancelReconnect(paneId);
+      const session = terminals.get(paneId);
       await session?.disconnect();
       session?.dispose();
-      terminals.delete(id);
-      useAppStore.getState().closeTab(id);
+      terminals.delete(paneId);
+      useAppStore.getState().removePane(paneId);
+    },
+    [cancelReconnect],
+  );
+
+  const closeTab = useCallback(
+    async (tabId: string) => {
+      const tab = useAppStore.getState().tabs.find((t) => t.id === tabId);
+      if (!tab) return;
+      for (const pane of tab.panes) {
+        cancelReconnect(pane.id);
+        const session = terminals.get(pane.id);
+        await session?.disconnect();
+        session?.dispose();
+        terminals.delete(pane.id);
+      }
+      useAppStore.getState().closeTab(tabId);
     },
     [cancelReconnect],
   );
@@ -294,28 +342,29 @@ export default function App() {
     setEditing(copy);
   };
 
+  const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+  const activePane = activePaneOf(activeTab);
+
   const runPalette = (action: PaletteAction) => {
     setPaletteOpen(false);
     if (action.type === "connect") {
       requestConnect(action.connection);
       return;
     }
-    const tab = tabs.find((t) => t.id === activeTabId);
-    if (!tab?.sessionId) return;
+    if (!activePane?.sessionId) return;
     const body = action.snippet.body.endsWith("\n")
       ? action.snippet.body
       : `${action.snippet.body}\n`;
-    void api.sshWrite(tab.sessionId, Array.from(encoder.encode(body)));
+    void api.sshWrite(activePane.sessionId, Array.from(encoder.encode(body)));
   };
 
-  /** Liga o broadcast, pedindo confirmação quando abas PROD receberiam input. */
+  /** Liga o broadcast, pedindo confirmação quando painéis PROD receberiam input. */
   const toggleBroadcast = () => {
     const { broadcast: on, tabs: current, settings } = useAppStore.getState();
-    if (
-      !on &&
-      !settings.broadcastSkipProd &&
-      current.some((t) => t.isProduction && t.status === "open")
-    ) {
+    const hasProdOpen = current.some((t) =>
+      t.panes.some((p) => p.isProduction && p.status === "open"),
+    );
+    if (!on && !settings.broadcastSkipProd && hasProdOpen) {
       setBroadcastConfirm(true);
       return;
     }
@@ -328,6 +377,20 @@ export default function App() {
       const meta = e.metaKey || e.ctrlKey;
       if (!meta) return;
       const store = useAppStore.getState();
+
+      // ⌘⌥←→↑↓ — circula o foco entre os painéis da aba ativa.
+      if (e.altKey && e.key.startsWith("Arrow")) {
+        const tab = store.tabs.find((t) => t.id === store.activeTabId);
+        if (tab && tab.panes.length > 1) {
+          e.preventDefault();
+          const i = tab.panes.findIndex((p) => p.id === tab.activePaneId);
+          const dir = e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 1;
+          const next = tab.panes[(i + dir + tab.panes.length) % tab.panes.length];
+          store.setActivePane(tab.id, next.id);
+          terminals.get(next.id)?.term.focus();
+        }
+        return;
+      }
 
       // ⌘1…⌘9 — vai direto para a aba N (⌘9 = última, como nos navegadores).
       if (!e.shiftKey && e.key >= "1" && e.key <= "9") {
@@ -353,13 +416,21 @@ export default function App() {
         return;
       }
 
-      if (e.key === "k" || e.key === "t") {
+      if (e.key === "d" || e.key === "D") {
+        // ⌘D divide lado a lado; ⌘⇧D divide empilhado (como no iTerm).
+        e.preventDefault();
+        splitActive(e.shiftKey ? "col" : "row");
+      } else if (e.key === "k" || e.key === "t") {
         // ⌘T abre a paleta: "nova aba" aqui é escolher a que servidor conectar.
         e.preventDefault();
         setPaletteOpen((v) => !v);
-      } else if (e.key === "w" && activeTabId) {
-        e.preventDefault();
-        void closeTab(activeTabId);
+      } else if (e.key === "w") {
+        // Fecha o painel ativo; se for o último da aba, a aba vai junto.
+        const tab = store.tabs.find((t) => t.id === store.activeTabId);
+        if (tab) {
+          e.preventDefault();
+          void closePane(tab.activePaneId);
+        }
       } else if (e.key === "f") {
         if (store.activeTabId) {
           e.preventDefault();
@@ -382,18 +453,18 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTabId, closeTab]);
+  }, [closePane]);
 
-  // A busca é da aba ativa; trocar de aba fecha a barra para não buscar "no
-  // terminal errado" sem perceber.
-  useEffect(() => setSearchOpen(false), [activeTabId]);
+  // A busca é do painel ativo; trocar de aba/painel fecha a barra para não
+  // buscar "no terminal errado" sem perceber.
+  useEffect(() => setSearchOpen(false), [activeTabId, activeTab?.activePaneId]);
 
   // Zoom aplicado a todos os terminais abertos.
   useEffect(() => {
     terminals.forEach((t) => t.setFontSize(fontSize));
   }, [fontSize]);
 
-  // Broadcast: o que for digitado em qualquer aba vai para todas as sessões
+  // Broadcast: o que for digitado em qualquer painel vai para todas as sessões
   // abertas. Um único `ssh_broadcast` no backend evita N round-trips de IPC por
   // tecla.
   useEffect(() => {
@@ -404,19 +475,130 @@ export default function App() {
     setInputRouter((_origin, bytes) => {
       const { tabs: current, settings } = useAppStore.getState();
       const ids = current
+        .flatMap((t) => t.panes)
         .filter(
-          (t) =>
-            t.status === "open" &&
-            t.sessionId &&
-            !(settings.broadcastSkipProd && t.isProduction),
+          (p) =>
+            p.status === "open" &&
+            p.sessionId &&
+            !(settings.broadcastSkipProd && p.isProduction),
         )
-        .map((t) => t.sessionId as string);
+        .map((p) => p.sessionId as string);
       if (ids.length) void api.sshBroadcast(ids, bytes).catch(() => {});
     });
     return () => setInputRouter(null);
   }, [broadcast]);
 
-  const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+  /** Um painel (folha da árvore): terminal + overlays de estado + foco. */
+  const renderPane = (tab: Tab, paneId: string, visible: boolean) => {
+    const pane = tab.panes.find((p) => p.id === paneId);
+    if (!pane) return null;
+    const multi = tab.panes.length > 1;
+    const focused = tab.activePaneId === pane.id;
+    return (
+      <div
+        className="pane-slot"
+        data-focused={multi && focused}
+        onMouseDownCapture={() => {
+          if (!focused) useAppStore.getState().setActivePane(tab.id, pane.id);
+        }}
+      >
+        <TerminalView paneId={pane.id} visible={visible} />
+
+        {searchOpen && visible && focused && (
+          <TerminalSearchBar paneId={pane.id} onClose={() => setSearchOpen(false)} />
+        )}
+
+        {pane.status === "connecting" && (
+          <div className="term-overlay term-overlay--quiet">
+            <Plug size={20} />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Spinner />
+              Conectando a {pane.title}…
+            </div>
+          </div>
+        )}
+
+        {pane.status === "closed" && pane.reconnectAttempt > 0 && (
+          <div className="term-overlay term-overlay--quiet">
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Spinner />
+              Reconectando a {pane.title} — tentativa {pane.reconnectAttempt}/
+              {RECONNECT_DELAYS_MS.length}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="btn"
+                onClick={() => {
+                  cancelReconnect(pane.id);
+                  useAppStore.getState().updatePane(pane.id, { reconnectAttempt: 0 });
+                }}
+              >
+                Cancelar
+              </button>
+              <button className="btn btn--primary" onClick={() => retry(pane)}>
+                Agora
+              </button>
+            </div>
+          </div>
+        )}
+
+        {pane.status === "closed" && pane.reconnectAttempt === 0 && pane.detail && (
+          <div className="term-overlay">
+            <div className="term-overlay__card">
+              <div className="term-overlay__title">
+                <TriangleAlert size={16} color="var(--danger)" />
+                Não foi possível manter a sessão com {pane.title}
+              </div>
+              <div className="term-overlay__msg">{pane.detail}</div>
+              <div className="term-overlay__actions">
+                <button className="btn" onClick={() => void closePane(pane.id)}>
+                  Fechar painel
+                </button>
+                <button className="btn btn--primary" onClick={() => retry(pane)}>
+                  <RotateCw size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
+                  Tentar de novo
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /** Render recursivo da árvore de splits de uma aba. */
+  const renderLayout = (tab: Tab, node: PaneLayout, visible: boolean): React.ReactNode => {
+    if (node.type === "leaf") return renderPane(tab, node.paneId, visible);
+    return (
+      <SplitView
+        key={node.id}
+        dir={node.dir}
+        ratio={node.ratio}
+        onRatio={(r) => useAppStore.getState().setSplitRatio(tab.id, node.id, r)}
+        a={renderLayout(tab, node.a, visible)}
+        b={renderLayout(tab, node.b, visible)}
+      />
+    );
+  };
+
+  /** Resumo visual da aba a partir dos seus painéis. */
+  const tabSummary = (t: Tab) => {
+    const first = t.panes[0];
+    const status = t.panes.some((p) => p.status === "open")
+      ? "open"
+      : t.panes.some((p) => p.status === "connecting")
+        ? "connecting"
+        : "closed";
+    return {
+      title: first?.title ?? "",
+      extra: t.panes.length > 1 ? t.panes.length : 0,
+      color: first?.color ?? "var(--accent)",
+      icon: first?.icon ?? "server",
+      isProduction: t.panes.some((p) => p.isProduction),
+      status,
+      detail: activePaneOf(t)?.detail ?? null,
+    };
+  };
 
   return (
     <div className="app" data-sidebar={sidebarOpen}>
@@ -443,47 +625,59 @@ export default function App() {
             <PanelLeft size={14} />
           </button>
 
-          {tabs.map((t) => (
-            <div
-              key={t.id}
-              className="tab"
-              data-active={t.id === activeTabId}
-              style={{ borderTopColor: t.id === activeTabId ? t.color : "transparent" }}
-              onClick={() => useAppStore.getState().setActiveTab(t.id)}
-            >
-              <span
-                className="tab__status"
-                style={{
-                  background:
-                    t.status === "open"
-                      ? "var(--ok)"
-                      : t.status === "connecting"
-                        ? "var(--warn)"
-                        : "var(--danger)",
-                }}
-              />
-              <ConnIcon name={t.icon} size={13} color={t.color} />
-              <span
-                style={{ overflow: "hidden", textOverflow: "ellipsis" }}
-                title={t.detail ?? undefined}
+          {tabs.map((t) => {
+            const s = tabSummary(t);
+            return (
+              <div
+                key={t.id}
+                className="tab"
+                data-active={t.id === activeTabId}
+                style={{ borderTopColor: t.id === activeTabId ? s.color : "transparent" }}
+                onClick={() => useAppStore.getState().setActiveTab(t.id)}
               >
-                {t.title}
-              </span>
-              {t.isProduction && <span className="prod-badge">PROD</span>}
-              <span
-                className="tab__close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void closeTab(t.id);
-                }}
-              >
-                <X size={12} />
-              </span>
-            </div>
-          ))}
+                <span
+                  className="tab__status"
+                  style={{
+                    background:
+                      s.status === "open"
+                        ? "var(--ok)"
+                        : s.status === "connecting"
+                          ? "var(--warn)"
+                          : "var(--danger)",
+                  }}
+                />
+                <ConnIcon name={s.icon} size={13} color={s.color} />
+                <span
+                  style={{ overflow: "hidden", textOverflow: "ellipsis" }}
+                  title={s.detail ?? undefined}
+                >
+                  {s.title}
+                </span>
+                {s.extra > 0 && <span className="tab__panes">⊞{s.extra}</span>}
+                {s.isProduction && <span className="prod-badge">PROD</span>}
+                <span
+                  className="tab__close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void closeTab(t.id);
+                  }}
+                >
+                  <X size={12} />
+                </span>
+              </div>
+            );
+          })}
 
           <div className="toolbar">
             {broadcast && <span className="broadcast-badge">BROADCAST</span>}
+            <button
+              className="icon-btn"
+              title="Dividir painel (⌘D lado a lado, ⌘⇧D empilhado)"
+              disabled={!activePane}
+              onClick={() => splitActive("row")}
+            >
+              <SquareSplitHorizontal size={14} />
+            </button>
             <button
               className="icon-btn"
               title="Diminuir fonte (⌘−)"
@@ -501,7 +695,7 @@ export default function App() {
             <button
               className="icon-btn"
               data-active={broadcast}
-              title="Enviar o que eu digitar para todas as abas abertas"
+              title="Enviar o que eu digitar para todas as sessões abertas"
               onClick={toggleBroadcast}
             >
               <Radio size={14} />
@@ -540,11 +734,11 @@ export default function App() {
           </div>
         </div>
 
-        {activeTab && (
+        {activePane && (
           <div
             className="session-strip"
-            data-production={activeTab.isProduction}
-            style={activeTab.isProduction ? undefined : { background: activeTab.color }}
+            data-production={activePane.isProduction}
+            style={activePane.isProduction ? undefined : { background: activePane.color }}
           />
         )}
 
@@ -554,7 +748,8 @@ export default function App() {
               <TerminalIcon size={30} />
               <div>Escolha um servidor na barra lateral para conectar.</div>
               <div>
-                <span className="kbd">⌘K</span> abre a busca rápida
+                <span className="kbd">⌘K</span> abre a busca rápida ·{" "}
+                <span className="kbd">⌘D</span> divide o painel
               </div>
             </div>
           ) : (
@@ -564,81 +759,22 @@ export default function App() {
                 className="term-slot"
                 style={{ display: t.id === activeTabId ? "flex" : "none" }}
               >
-                <TerminalView tabId={t.id} visible={t.id === activeTabId} />
-
-                {searchOpen && t.id === activeTabId && (
-                  <TerminalSearchBar tabId={t.id} onClose={() => setSearchOpen(false)} />
-                )}
-
-                {t.status === "connecting" && (
-                  <div className="term-overlay term-overlay--quiet">
-                    <Plug size={20} />
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Spinner />
-                      Conectando a {t.title}…
-                    </div>
-                  </div>
-                )}
-
-                {t.status === "closed" && t.reconnectAttempt > 0 && (
-                  <div className="term-overlay term-overlay--quiet">
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Spinner />
-                      Reconectando a {t.title} — tentativa {t.reconnectAttempt}/
-                      {RECONNECT_DELAYS_MS.length}
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button
-                        className="btn"
-                        onClick={() => {
-                          cancelReconnect(t.id);
-                          useAppStore.getState().updateTab(t.id, { reconnectAttempt: 0 });
-                        }}
-                      >
-                        Cancelar
-                      </button>
-                      <button className="btn btn--primary" onClick={() => retry(t)}>
-                        Agora
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {t.status === "closed" && t.reconnectAttempt === 0 && t.detail && (
-                  <div className="term-overlay">
-                    <div className="term-overlay__card">
-                      <div className="term-overlay__title">
-                        <TriangleAlert size={16} color="var(--danger)" />
-                        Não foi possível manter a sessão com {t.title}
-                      </div>
-                      <div className="term-overlay__msg">{t.detail}</div>
-                      <div className="term-overlay__actions">
-                        <button className="btn" onClick={() => void closeTab(t.id)}>
-                          Fechar aba
-                        </button>
-                        <button className="btn btn--primary" onClick={() => retry(t)}>
-                          <RotateCw size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
-                          Tentar de novo
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {renderLayout(t, t.layout, t.id === activeTabId)}
               </div>
             ))
           )}
 
-          {sftpOpen && activeTab?.sessionId && (
-            <SftpPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} />
+          {sftpOpen && activePane?.sessionId && (
+            <SftpPanel key={activePane.sessionId} sessionId={activePane.sessionId} />
           )}
-          {dockerOpen && activeTab?.sessionId && (
-            <DockerPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} />
+          {dockerOpen && activePane?.sessionId && (
+            <DockerPanel key={activePane.sessionId} sessionId={activePane.sessionId} />
           )}
-          {tunnelsOpen && activeTab?.sessionId && (
+          {tunnelsOpen && activePane?.sessionId && (
             <TunnelsPanel
-              key={activeTab.sessionId}
-              sessionId={activeTab.sessionId}
-              connectionId={activeTab.connectionId}
+              key={activePane.sessionId}
+              sessionId={activePane.sessionId}
+              connectionId={activePane.connectionId}
             />
           )}
         </div>
@@ -647,15 +783,15 @@ export default function App() {
       {editing && <ConnectionForm initial={editing} onClose={() => setEditing(null)} />}
       {managing && (
         <ManagePanel
-          activeSessionId={activeTab?.status === "open" ? activeTab.sessionId : null}
-          activeSessionTitle={activeTab?.title ?? null}
+          activeSessionId={activePane?.status === "open" ? activePane.sessionId : null}
+          activeSessionTitle={activePane?.title ?? null}
           onClose={() => setManaging(false)}
         />
       )}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       {paletteOpen && (
         <CommandPalette
-          hasSession={!!activeTab?.sessionId}
+          hasSession={!!activePane?.sessionId}
           onRun={runPalette}
           onClose={() => setPaletteOpen(false)}
         />
@@ -690,6 +826,7 @@ export default function App() {
             setRestoreOffer(null);
             for (const c of list) {
               pending.current = null;
+              placement.current = null;
               void startConnect(c);
             }
           }}
@@ -699,13 +836,13 @@ export default function App() {
 
       {broadcastConfirm && (
         <ConfirmDialog
-          title="Broadcast com abas de produção"
+          title="Broadcast com sessões de produção"
           danger
           confirmLabel="Ligar mesmo assim"
           message={
             <>
-              Há abas <b>PROD</b> abertas e a opção de ignorá-las está desligada. Tudo o
-              que você digitar será enviado <b>também para produção</b>.
+              Há sessões <b>PROD</b> abertas e a opção de ignorá-las está desligada. Tudo
+              o que você digitar será enviado <b>também para produção</b>.
             </>
           }
           onConfirm={() => {
@@ -747,7 +884,7 @@ export default function App() {
           message={
             <>
               <b>{prodConfirm.name}</b> está marcado como produção (
-              {prodConfirm.username}@{prodConfirm.host}). A aba vai ficar com faixa
+              {prodConfirm.username}@{prodConfirm.host}). O painel vai ficar com faixa
               vermelha enquanto a sessão estiver aberta.
             </>
           }
@@ -756,7 +893,10 @@ export default function App() {
             setProdConfirm(null);
             void startConnect(c);
           }}
-          onCancel={() => setProdConfirm(null)}
+          onCancel={() => {
+            setProdConfirm(null);
+            placement.current = null;
+          }}
         />
       )}
 
@@ -776,11 +916,11 @@ export default function App() {
             setHostKey(null);
             const p = pending.current;
             if (p) {
-              useAppStore.getState().updateTab(p.tabId, {
+              useAppStore.getState().updatePane(p.paneId, {
                 status: "closed",
                 detail: "host key recusada",
               });
-              terminals.get(p.tabId)?.markClosed("host key recusada");
+              terminals.get(p.paneId)?.markClosed("host key recusada");
             }
             pending.current = null;
           }}
@@ -804,16 +944,68 @@ export default function App() {
             setAuthPrompt(null);
             const p = pending.current;
             if (p) {
-              useAppStore.getState().updateTab(p.tabId, {
+              useAppStore.getState().updatePane(p.paneId, {
                 status: "closed",
                 detail: "autenticação cancelada",
               });
-              terminals.get(p.tabId)?.markClosed("autenticação cancelada");
+              terminals.get(p.paneId)?.markClosed("autenticação cancelada");
             }
             pending.current = null;
           }}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Divisão com divisor arrastável. `ratio` é a fração da primeira metade;
+ * arrastar chama `onRatio` e os terminais se reajustam pelo ResizeObserver.
+ */
+function SplitView({
+  dir,
+  ratio,
+  onRatio,
+  a,
+  b,
+}: {
+  dir: SplitDir;
+  ratio: number;
+  onRatio: (r: number) => void;
+  a: React.ReactNode;
+  b: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const move = (ev: MouseEvent) => {
+      const frac =
+        dir === "row"
+          ? (ev.clientX - rect.left) / rect.width
+          : (ev.clientY - rect.top) / rect.height;
+      onRatio(Math.min(0.85, Math.max(0.15, frac)));
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
+
+  return (
+    <div ref={ref} className={`split split--${dir}`}>
+      <div className="split__cell" style={{ flexGrow: ratio }}>
+        {a}
+      </div>
+      <div className="split__divider" onMouseDown={onMouseDown} />
+      <div className="split__cell" style={{ flexGrow: 1 - ratio }}>
+        {b}
+      </div>
     </div>
   );
 }

@@ -7,10 +7,10 @@ import { terminals } from "./session";
  * Busca no scrollback (⌘F). Flutuante sobre o terminal, sem roubar o layout.
  * Enter avança, Shift+Enter volta, Esc fecha e devolve o foco ao terminal.
  */
-export function TerminalSearchBar({ tabId, onClose }: { tabId: string; onClose: () => void }) {
+export function TerminalSearchBar({ paneId, onClose }: { paneId: string; onClose: () => void }) {
   const [q, setQ] = useState("");
   const ref = useRef<HTMLInputElement>(null);
-  const session = terminals.get(tabId);
+  const session = terminals.get(paneId);
 
   useEffect(() => ref.current?.focus(), []);
 

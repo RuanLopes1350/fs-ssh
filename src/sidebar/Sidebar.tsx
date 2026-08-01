@@ -20,7 +20,7 @@ import { ConfirmDialog, InputDialog } from "../components/Dialogs";
 import { ConnIcon } from "../components/Icon";
 import { withAlpha } from "../lib/color";
 import { api } from "../lib/ipc";
-import { filterConnections, useAppStore } from "../store/useAppStore";
+import { activePaneOf, filterConnections, useAppStore } from "../store/useAppStore";
 import type { Connection, Folder } from "../lib/types";
 
 /** Ids-sentinela das seções fixas, guardados junto com as pastas colapsadas. */
@@ -69,10 +69,10 @@ export function Sidebar({
   /** Pasta destacada como alvo (id da pasta ou SECTION_ROOT). */
   const [dropFolder, setDropFolder] = useState<string | null>(null);
 
-  // A conexão da aba ativa fica destacada na lista — trocar de aba mostra na
-  // hora "onde" você está.
+  // A conexão do painel ativo fica destacada na lista — trocar de aba (ou de
+  // painel num split) mostra na hora "onde" você está.
   const activeConnectionId =
-    tabs.find((t) => t.id === activeTabId)?.connectionId ?? null;
+    activePaneOf(tabs.find((t) => t.id === activeTabId))?.connectionId ?? null;
 
   const visible = useMemo(
     () => filterConnections(connections, search, selectedTagIds),

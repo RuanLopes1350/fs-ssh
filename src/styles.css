@@ -905,6 +905,73 @@ textarea:focus {
   color: var(--text);
 }
 
+/* ------------------------------------------------------------ split panes */
+
+/* Um painel (folha da árvore de splits). O anel de foco só aparece quando a
+   aba tem mais de um painel — com um só, seria ruído. */
+.pane-slot {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane-slot[data-focused="true"] {
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.split {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.split--row {
+  flex-direction: row;
+}
+
+.split--col {
+  flex-direction: column;
+}
+
+.split__cell {
+  display: flex;
+  flex-basis: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.split__divider {
+  flex: none;
+  background: var(--border);
+  transition: background 0.12s ease;
+}
+
+.split--row > .split__divider {
+  width: 4px;
+  cursor: col-resize;
+}
+
+.split--col > .split__divider {
+  height: 4px;
+  cursor: row-resize;
+}
+
+.split__divider:hover,
+.split__divider:active {
+  background: var(--accent);
+}
+
+/* Contador de painéis na aba (⊞2, ⊞3…). */
+.tab__panes {
+  font-size: 10px;
+  color: var(--text-faint);
+  flex: none;
+}
+
 /* Sidebar oculta: o app vira uma coluna só, e a tabbar abre espaço para os
    semáforos do macOS (que ficavam sobre a sidebar). */
 .app[data-sidebar="false"] {

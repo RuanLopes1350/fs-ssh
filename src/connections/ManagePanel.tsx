@@ -715,8 +715,10 @@ function ThemeEditor({
   useEffect(() => {
     const { tabs, connections } = useAppStore.getState();
     for (const t of tabs) {
-      const conn = connections.find((c) => c.id === t.connectionId);
-      if (conn?.themeId === theme.id) terminals.get(t.id)?.setPalette(palette);
+      for (const p of t.panes) {
+        const conn = connections.find((c) => c.id === p.connectionId);
+        if (conn?.themeId === theme.id) terminals.get(p.id)?.setPalette(palette);
+      }
     }
   }, [palette, theme.id]);
 

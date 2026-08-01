@@ -63,7 +63,9 @@ export function ConnectionForm({
     if (!conn.id) return;
     const palette = themes.find((t) => t.id === conn.themeId)?.json ?? FALLBACK_PALETTE;
     for (const t of useAppStore.getState().tabs) {
-      if (t.connectionId === conn.id) terminals.get(t.id)?.setPalette(palette);
+      for (const p of t.panes) {
+        if (p.connectionId === conn.id) terminals.get(p.id)?.setPalette(palette);
+      }
     }
   }, [conn.themeId, conn.id, themes]);
 
