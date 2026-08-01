@@ -1,0 +1,11 @@
+# deps e builds
+node_modules/
+dist/
+src-tauri/target/
+
+# gerados pelo tauri
+src-tauri/gen/schemas/
+
+# sistema / editor
+.DS_Store
+*.log

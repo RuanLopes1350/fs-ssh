@@ -1,0 +1,819 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import {
+  Cable,
+  Container,
+  FolderTree,
+  History,
+  Minus,
+  PanelLeft,
+  Plug,
+  Plus,
+  Radio,
+  RotateCw,
+  Settings as SettingsIcon,
+  Terminal as TerminalIcon,
+  TriangleAlert,
+  X,
+} from "lucide-react";
+
+import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
+import { AuthDialog, ConfirmDialog, HostKeyDialog, Spinner } from "./components/Dialogs";
+import { ConnIcon } from "./components/Icon";
+import { SettingsDialog } from "./components/SettingsDialog";
+import { ConnectionForm, EMPTY_CONNECTION } from "./connections/ConnectionForm";
+import { ManagePanel } from "./connections/ManagePanel";
+import { DockerPanel } from "./docker/DockerPanel";
+import { api, asAppError } from "./lib/ipc";
+import type {
+  AppError,
+  AuthPrompt,
+  Connection,
+  HostKeyPrompt,
+  SessionClosed,
+} from "./lib/types";
+import { SftpPanel } from "./sftp/SftpPanel";
+import { Sidebar } from "./sidebar/Sidebar";
+import { TunnelsPanel } from "./tunnels/TunnelsPanel";
+import { setInputRouter, TerminalSession, terminals } from "./terminal/session";
+import { TerminalSearchBar } from "./terminal/SearchBar";
+import { TerminalView } from "./terminal/TerminalView";
+import { useAppStore, type Tab } from "./store/useAppStore";
+
+const encoder = new TextEncoder();
+
+/** Backoff do auto-reconnect. Depois da última tentativa, desiste. */
+const RECONNECT_DELAYS_MS = [2000, 4000, 8000, 15000, 30000];
+
+/** Tentativa de conexão em andamento, retomada depois de um diálogo. */
+interface Pending {
+  tabId: string;
+  connection: Connection;
+  secret?: string;
+  jumpSecret?: string;
+}
+
+export default function App() {
+  const tabs = useAppStore((s) => s.tabs);
+  const activeTabId = useAppStore((s) => s.activeTabId);
+  const sftpOpen = useAppStore((s) => s.sftpOpen);
+  const dockerOpen = useAppStore((s) => s.dockerOpen);
+  const tunnelsOpen = useAppStore((s) => s.tunnelsOpen);
+  const broadcast = useAppStore((s) => s.broadcast);
+  const fontSize = useAppStore((s) => s.fontSize);
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen);
+  const loadAll = useAppStore((s) => s.loadAll);
+
+  const [editing, setEditing] = useState<Connection | null>(null);
+  const [managing, setManaging] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [hostKey, setHostKey] = useState<HostKeyPrompt | null>(null);
+  const [authPrompt, setAuthPrompt] = useState<AuthPrompt | null>(null);
+  const [prodConfirm, setProdConfirm] = useState<Connection | null>(null);
+  const [deleting, setDeleting] = useState<Connection | null>(null);
+  const [broadcastConfirm, setBroadcastConfirm] = useState(false);
+  const [restoreOffer, setRestoreOffer] = useState<Connection[] | null>(null);
+  const pending = useRef<Pending | null>(null);
+  const reconnectTimers = useRef(new Map<string, number>());
+
+  useEffect(() => {
+    void (async () => {
+      // Snapshot ANTES do loadAll: abrir abas sobrescreve a lista persistida.
+      const wanted = useAppStore.getState().lastSessionConnectionIds;
+      await loadAll();
+      const { settings, connections } = useAppStore.getState();
+      if (!settings.restoreTabs || wanted.length === 0) return;
+      const found = wanted
+        .map((id) => connections.find((c) => c.id === id))
+        .filter((c): c is Connection => !!c);
+      if (found.length) setRestoreOffer(found);
+    })();
+  }, [loadAll]);
+
+  const cancelReconnect = useCallback((tabId: string) => {
+    const timer = reconnectTimers.current.get(tabId);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      reconnectTimers.current.delete(tabId);
+    }
+  }, []);
+
+  const startConnect = useCallback(
+    async (connection: Connection, secret?: string, jumpSecret?: string) => {
+      const store = useAppStore.getState();
+      const existingTabId = pending.current?.tabId;
+      const tabId = existingTabId ?? crypto.randomUUID();
+
+      if (!existingTabId) {
+        const tab: Tab = {
+          id: tabId,
+          connectionId: connection.id,
+          title: connection.name,
+          color: connection.color,
+          icon: connection.icon,
+          isProduction: connection.isProduction,
+          status: "connecting",
+          sessionId: null,
+          detail: null,
+          reconnectAttempt: 0,
+        };
+        store.addTab(tab);
+        terminals.set(
+          tabId,
+          new TerminalSession(
+            connection.id,
+            store.paletteFor(connection.id),
+            store.fontSize,
+          ),
+        );
+      } else {
+        store.updateTab(tabId, { status: "connecting", detail: null });
+      }
+
+      pending.current = { tabId, connection, secret, jumpSecret };
+
+      try {
+        const session = terminals.get(tabId)!;
+        const info = await session.connect(secret, jumpSecret);
+        useAppStore.getState().updateTab(tabId, {
+          status: "open",
+          sessionId: info.sessionId,
+          detail: null,
+          reconnectAttempt: 0,
+        });
+        pending.current = null;
+        // Túneis marcados como auto-início sobem junto com a sessão; falhas
+        // (porta ocupada etc.) aparecem no próprio terminal, sem bloquear nada.
+        void api.forwardAutostart(info.sessionId).then((r) => {
+          if (r.errors.length) {
+            terminals
+              .get(tabId)
+              ?.term.write(`\r\n\x1b[33m── túneis: ${r.errors.join("; ")} ──\x1b[0m\r\n`);
+          }
+        });
+      } catch (raw) {
+        const e = asAppError(raw);
+        if (!handleConnectError(e)) {
+          // O erro fica preso à aba que falhou. Um banner global não diria de
+          // qual servidor é a falha quando há várias abas abertas.
+          useAppStore.getState().updateTab(tabId, { status: "closed", detail: e.message });
+          terminals.get(tabId)?.markClosed(e.message);
+          pending.current = null;
+          // Se esta tentativa fazia parte de um auto-reconnect, agenda a próxima.
+          const tab = useAppStore.getState().tabs.find((t) => t.id === tabId);
+          if (tab && tab.reconnectAttempt > 0) scheduleReconnect(tabId);
+        }
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  /** Agenda a próxima tentativa de reconexão da aba, com backoff. */
+  const scheduleReconnect = useCallback(
+    (tabId: string) => {
+      const { tabs: current, updateTab } = useAppStore.getState();
+      const tab = current.find((t) => t.id === tabId);
+      if (!tab) return;
+      const attempt = tab.reconnectAttempt + 1;
+      if (attempt > RECONNECT_DELAYS_MS.length) {
+        updateTab(tabId, { reconnectAttempt: 0 });
+        return;
+      }
+      updateTab(tabId, { reconnectAttempt: attempt });
+
+      const timer = window.setTimeout(() => {
+        reconnectTimers.current.delete(tabId);
+        const st = useAppStore.getState();
+        const t = st.tabs.find((x) => x.id === tabId);
+        const connection = st.connections.find((c) => c.id === t?.connectionId);
+        if (!t || !connection || t.status !== "closed") return;
+        pending.current = { tabId, connection };
+        void startConnect(connection);
+      }, RECONNECT_DELAYS_MS[attempt - 1]);
+      reconnectTimers.current.set(tabId, timer);
+    },
+    [startConnect],
+  );
+
+  // O backend avisa quando o canal cai (logout, rede, kill). Sem isso a aba
+  // ficaria "aberta" para sempre depois de um `exit`.
+  useEffect(() => {
+    const un = listen<SessionClosed>("session-closed", (e) => {
+      const { sessionId, reason, exitStatus } = e.payload;
+      const { tabs: current, updateTab, settings } = useAppStore.getState();
+      const tab = current.find((t) => t.sessionId === sessionId);
+      if (!tab) return;
+      const wasOpen = tab.status === "open";
+      terminals
+        .get(tab.id)
+        ?.markClosed(exitStatus != null ? `${reason} (código ${exitStatus})` : reason);
+      updateTab(tab.id, { status: "closed", detail: reason });
+
+      // Auto-reconnect só para queda inesperada: `exit` limpo (exitStatus
+      // preenchido) e fechamento pelo usuário não contam.
+      const unexpected =
+        wasOpen && exitStatus == null && reason !== "encerrada pelo usuário";
+      if (unexpected && settings.autoReconnect) scheduleReconnect(tab.id);
+    });
+    return () => {
+      void un.then((f) => f());
+    };
+  }, [scheduleReconnect]);
+
+  /** Retorna true quando o erro virou um diálogo (fluxo continua). */
+  const handleConnectError = (e: AppError): boolean => {
+    const d = (e.data ?? {}) as Record<string, string | number | boolean>;
+    if (e.kind === "host_key_unknown" || e.kind === "host_key_changed") {
+      setHostKey({
+        host: String(d.host),
+        port: Number(d.port),
+        fingerprint: String(d.fingerprint),
+        algorithm: String(d.algorithm),
+        knownFingerprint: d.knownFingerprint ? String(d.knownFingerprint) : undefined,
+        changed: e.kind === "host_key_changed",
+      });
+      return true;
+    }
+    if (e.kind === "auth_required") {
+      setAuthPrompt({
+        authKind: d.authKind === "passphrase" ? "passphrase" : "password",
+        prompt: String(d.prompt),
+        forJump: d.forJump === true,
+      });
+      return true;
+    }
+    return false;
+  };
+
+  const requestConnect = (connection: Connection) => {
+    pending.current = null;
+    if (connection.isProduction) {
+      setProdConfirm(connection);
+      return;
+    }
+    void startConnect(connection);
+  };
+
+  /** Tenta de novo na mesma aba, reaproveitando o terminal e o scrollback. */
+  const retry = (tab: Tab) => {
+    cancelReconnect(tab.id);
+    useAppStore.getState().updateTab(tab.id, { reconnectAttempt: 0 });
+    const connection = useAppStore
+      .getState()
+      .connections.find((c) => c.id === tab.connectionId);
+    if (!connection) return;
+    pending.current = { tabId: tab.id, connection };
+    void startConnect(connection);
+  };
+
+  const closeTab = useCallback(
+    async (id: string) => {
+      cancelReconnect(id);
+      const session = terminals.get(id);
+      await session?.disconnect();
+      session?.dispose();
+      terminals.delete(id);
+      useAppStore.getState().closeTab(id);
+    },
+    [cancelReconnect],
+  );
+
+  const duplicate = async (c: Connection) => {
+    const copy = await api.connSave({
+      ...c,
+      id: "",
+      name: `${c.name} (cópia)`,
+      createdAt: "",
+      lastUsedAt: null,
+      useCount: 0,
+    });
+    await useAppStore.getState().reloadConnections();
+    setEditing(copy);
+  };
+
+  const runPalette = (action: PaletteAction) => {
+    setPaletteOpen(false);
+    if (action.type === "connect") {
+      requestConnect(action.connection);
+      return;
+    }
+    const tab = tabs.find((t) => t.id === activeTabId);
+    if (!tab?.sessionId) return;
+    const body = action.snippet.body.endsWith("\n")
+      ? action.snippet.body
+      : `${action.snippet.body}\n`;
+    void api.sshWrite(tab.sessionId, Array.from(encoder.encode(body)));
+  };
+
+  /** Liga o broadcast, pedindo confirmação quando abas PROD receberiam input. */
+  const toggleBroadcast = () => {
+    const { broadcast: on, tabs: current, settings } = useAppStore.getState();
+    if (
+      !on &&
+      !settings.broadcastSkipProd &&
+      current.some((t) => t.isProduction && t.status === "open")
+    ) {
+      setBroadcastConfirm(true);
+      return;
+    }
+    useAppStore.getState().toggleBroadcast();
+  };
+
+  // Atalhos globais.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta) return;
+      const store = useAppStore.getState();
+
+      // ⌘1…⌘9 — vai direto para a aba N (⌘9 = última, como nos navegadores).
+      if (!e.shiftKey && e.key >= "1" && e.key <= "9") {
+        const idx = e.key === "9" ? store.tabs.length - 1 : Number(e.key) - 1;
+        const tab = store.tabs[idx];
+        if (tab) {
+          e.preventDefault();
+          store.setActiveTab(tab.id);
+        }
+        return;
+      }
+
+      // ⌘⇧[ / ⌘⇧] — aba anterior/seguinte.
+      if (e.shiftKey && (e.key === "[" || e.key === "]" || e.key === "{" || e.key === "}")) {
+        const list = store.tabs;
+        if (list.length > 1 && store.activeTabId) {
+          e.preventDefault();
+          const i = list.findIndex((t) => t.id === store.activeTabId);
+          const dir = e.key === "[" || e.key === "{" ? -1 : 1;
+          const next = list[(i + dir + list.length) % list.length];
+          store.setActiveTab(next.id);
+        }
+        return;
+      }
+
+      if (e.key === "k" || e.key === "t") {
+        // ⌘T abre a paleta: "nova aba" aqui é escolher a que servidor conectar.
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      } else if (e.key === "w" && activeTabId) {
+        e.preventDefault();
+        void closeTab(activeTabId);
+      } else if (e.key === "f") {
+        if (store.activeTabId) {
+          e.preventDefault();
+          setSearchOpen((v) => !v);
+        }
+      } else if (e.key === "b") {
+        e.preventDefault();
+        store.toggleSidebar();
+      } else if (e.key === ",") {
+        e.preventDefault();
+        setSettingsOpen((v) => !v);
+      } else if (e.key === "=" || e.key === "+") {
+        e.preventDefault();
+        store.setFontSize(store.fontSize + 1);
+      } else if (e.key === "-") {
+        e.preventDefault();
+        store.setFontSize(store.fontSize - 1);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId, closeTab]);
+
+  // A busca é da aba ativa; trocar de aba fecha a barra para não buscar "no
+  // terminal errado" sem perceber.
+  useEffect(() => setSearchOpen(false), [activeTabId]);
+
+  // Zoom aplicado a todos os terminais abertos.
+  useEffect(() => {
+    terminals.forEach((t) => t.setFontSize(fontSize));
+  }, [fontSize]);
+
+  // Broadcast: o que for digitado em qualquer aba vai para todas as sessões
+  // abertas. Um único `ssh_broadcast` no backend evita N round-trips de IPC por
+  // tecla.
+  useEffect(() => {
+    if (!broadcast) {
+      setInputRouter(null);
+      return;
+    }
+    setInputRouter((_origin, bytes) => {
+      const { tabs: current, settings } = useAppStore.getState();
+      const ids = current
+        .filter(
+          (t) =>
+            t.status === "open" &&
+            t.sessionId &&
+            !(settings.broadcastSkipProd && t.isProduction),
+        )
+        .map((t) => t.sessionId as string);
+      if (ids.length) void api.sshBroadcast(ids, bytes).catch(() => {});
+    });
+    return () => setInputRouter(null);
+  }, [broadcast]);
+
+  const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+
+  return (
+    <div className="app" data-sidebar={sidebarOpen}>
+      {sidebarOpen && (
+        <Sidebar
+          onConnect={requestConnect}
+          onEdit={setEditing}
+          onDuplicate={(c) => void duplicate(c)}
+          onDelete={setDeleting}
+          onNew={() => setEditing({ ...EMPTY_CONNECTION })}
+          onManage={() => setManaging(true)}
+        />
+      )}
+
+      <main className="main">
+        <div className="tabbar">
+          <button
+            className="icon-btn"
+            style={{ alignSelf: "center", flex: "none" }}
+            title={sidebarOpen ? "Esconder barra lateral (⌘B)" : "Mostrar barra lateral (⌘B)"}
+            data-active={!sidebarOpen}
+            onClick={() => useAppStore.getState().toggleSidebar()}
+          >
+            <PanelLeft size={14} />
+          </button>
+
+          {tabs.map((t) => (
+            <div
+              key={t.id}
+              className="tab"
+              data-active={t.id === activeTabId}
+              style={{ borderTopColor: t.id === activeTabId ? t.color : "transparent" }}
+              onClick={() => useAppStore.getState().setActiveTab(t.id)}
+            >
+              <span
+                className="tab__status"
+                style={{
+                  background:
+                    t.status === "open"
+                      ? "var(--ok)"
+                      : t.status === "connecting"
+                        ? "var(--warn)"
+                        : "var(--danger)",
+                }}
+              />
+              <ConnIcon name={t.icon} size={13} color={t.color} />
+              <span
+                style={{ overflow: "hidden", textOverflow: "ellipsis" }}
+                title={t.detail ?? undefined}
+              >
+                {t.title}
+              </span>
+              {t.isProduction && <span className="prod-badge">PROD</span>}
+              <span
+                className="tab__close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void closeTab(t.id);
+                }}
+              >
+                <X size={12} />
+              </span>
+            </div>
+          ))}
+
+          <div className="toolbar">
+            {broadcast && <span className="broadcast-badge">BROADCAST</span>}
+            <button
+              className="icon-btn"
+              title="Diminuir fonte (⌘−)"
+              onClick={() => useAppStore.getState().setFontSize(fontSize - 1)}
+            >
+              <Minus size={14} />
+            </button>
+            <button
+              className="icon-btn"
+              title="Aumentar fonte (⌘+)"
+              onClick={() => useAppStore.getState().setFontSize(fontSize + 1)}
+            >
+              <Plus size={14} />
+            </button>
+            <button
+              className="icon-btn"
+              data-active={broadcast}
+              title="Enviar o que eu digitar para todas as abas abertas"
+              onClick={toggleBroadcast}
+            >
+              <Radio size={14} />
+            </button>
+            <button
+              className="icon-btn"
+              data-active={sftpOpen}
+              title="Painel de arquivos (SFTP)"
+              onClick={() => useAppStore.getState().toggleSftp()}
+            >
+              <FolderTree size={14} />
+            </button>
+            <button
+              className="icon-btn"
+              data-active={dockerOpen}
+              title="Containers Docker/Podman do host"
+              onClick={() => useAppStore.getState().toggleDocker()}
+            >
+              <Container size={14} />
+            </button>
+            <button
+              className="icon-btn"
+              data-active={tunnelsOpen}
+              title="Túneis (port forwarding -L/-R)"
+              onClick={() => useAppStore.getState().toggleTunnels()}
+            >
+              <Cable size={14} />
+            </button>
+            <button
+              className="icon-btn"
+              title="Configurações (⌘,)"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <SettingsIcon size={14} />
+            </button>
+          </div>
+        </div>
+
+        {activeTab && (
+          <div
+            className="session-strip"
+            data-production={activeTab.isProduction}
+            style={activeTab.isProduction ? undefined : { background: activeTab.color }}
+          />
+        )}
+
+        <div className="workarea" data-broadcast={broadcast}>
+          {tabs.length === 0 ? (
+            <div className="empty">
+              <TerminalIcon size={30} />
+              <div>Escolha um servidor na barra lateral para conectar.</div>
+              <div>
+                <span className="kbd">⌘K</span> abre a busca rápida
+              </div>
+            </div>
+          ) : (
+            tabs.map((t) => (
+              <div
+                key={t.id}
+                className="term-slot"
+                style={{ display: t.id === activeTabId ? "flex" : "none" }}
+              >
+                <TerminalView tabId={t.id} visible={t.id === activeTabId} />
+
+                {searchOpen && t.id === activeTabId && (
+                  <TerminalSearchBar tabId={t.id} onClose={() => setSearchOpen(false)} />
+                )}
+
+                {t.status === "connecting" && (
+                  <div className="term-overlay term-overlay--quiet">
+                    <Plug size={20} />
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Spinner />
+                      Conectando a {t.title}…
+                    </div>
+                  </div>
+                )}
+
+                {t.status === "closed" && t.reconnectAttempt > 0 && (
+                  <div className="term-overlay term-overlay--quiet">
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Spinner />
+                      Reconectando a {t.title} — tentativa {t.reconnectAttempt}/
+                      {RECONNECT_DELAYS_MS.length}
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        className="btn"
+                        onClick={() => {
+                          cancelReconnect(t.id);
+                          useAppStore.getState().updateTab(t.id, { reconnectAttempt: 0 });
+                        }}
+                      >
+                        Cancelar
+                      </button>
+                      <button className="btn btn--primary" onClick={() => retry(t)}>
+                        Agora
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {t.status === "closed" && t.reconnectAttempt === 0 && t.detail && (
+                  <div className="term-overlay">
+                    <div className="term-overlay__card">
+                      <div className="term-overlay__title">
+                        <TriangleAlert size={16} color="var(--danger)" />
+                        Não foi possível manter a sessão com {t.title}
+                      </div>
+                      <div className="term-overlay__msg">{t.detail}</div>
+                      <div className="term-overlay__actions">
+                        <button className="btn" onClick={() => void closeTab(t.id)}>
+                          Fechar aba
+                        </button>
+                        <button className="btn btn--primary" onClick={() => retry(t)}>
+                          <RotateCw size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
+                          Tentar de novo
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+
+          {sftpOpen && activeTab?.sessionId && (
+            <SftpPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} />
+          )}
+          {dockerOpen && activeTab?.sessionId && (
+            <DockerPanel key={activeTab.sessionId} sessionId={activeTab.sessionId} />
+          )}
+          {tunnelsOpen && activeTab?.sessionId && (
+            <TunnelsPanel
+              key={activeTab.sessionId}
+              sessionId={activeTab.sessionId}
+              connectionId={activeTab.connectionId}
+            />
+          )}
+        </div>
+      </main>
+
+      {editing && <ConnectionForm initial={editing} onClose={() => setEditing(null)} />}
+      {managing && (
+        <ManagePanel
+          activeSessionId={activeTab?.status === "open" ? activeTab.sessionId : null}
+          activeSessionTitle={activeTab?.title ?? null}
+          onClose={() => setManaging(false)}
+        />
+      )}
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {paletteOpen && (
+        <CommandPalette
+          hasSession={!!activeTab?.sessionId}
+          onRun={runPalette}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
+
+      {restoreOffer && (
+        <ConfirmDialog
+          title="Restaurar sessão anterior"
+          confirmLabel={`Reconectar (${restoreOffer.length})`}
+          message={
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <History size={15} color="var(--accent)" />
+                Estas conexões estavam abertas quando o app foi fechado:
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                {restoreOffer.map((c) => (
+                  <li key={c.id}>
+                    {c.name}
+                    {c.isProduction && (
+                      <span className="prod-badge" style={{ marginLeft: 6 }}>
+                        PROD
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
+          }
+          onConfirm={() => {
+            const list = restoreOffer;
+            setRestoreOffer(null);
+            for (const c of list) {
+              pending.current = null;
+              void startConnect(c);
+            }
+          }}
+          onCancel={() => setRestoreOffer(null)}
+        />
+      )}
+
+      {broadcastConfirm && (
+        <ConfirmDialog
+          title="Broadcast com abas de produção"
+          danger
+          confirmLabel="Ligar mesmo assim"
+          message={
+            <>
+              Há abas <b>PROD</b> abertas e a opção de ignorá-las está desligada. Tudo o
+              que você digitar será enviado <b>também para produção</b>.
+            </>
+          }
+          onConfirm={() => {
+            setBroadcastConfirm(false);
+            useAppStore.getState().toggleBroadcast();
+          }}
+          onCancel={() => setBroadcastConfirm(false)}
+        />
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          title="Excluir conexão"
+          danger
+          confirmLabel="Excluir"
+          message={
+            <>
+              Excluir <b>{deleting.name}</b> ({deleting.username}@{deleting.host})? As
+              sessões já abertas continuam funcionando.
+            </>
+          }
+          onConfirm={() => {
+            const c = deleting;
+            setDeleting(null);
+            void (async () => {
+              await api.connDelete(c.id);
+              await useAppStore.getState().reloadConnections();
+            })();
+          }}
+          onCancel={() => setDeleting(null)}
+        />
+      )}
+
+      {prodConfirm && (
+        <ConfirmDialog
+          title="Conectar em produção"
+          danger
+          confirmLabel="Conectar"
+          message={
+            <>
+              <b>{prodConfirm.name}</b> está marcado como produção (
+              {prodConfirm.username}@{prodConfirm.host}). A aba vai ficar com faixa
+              vermelha enquanto a sessão estiver aberta.
+            </>
+          }
+          onConfirm={() => {
+            const c = prodConfirm;
+            setProdConfirm(null);
+            void startConnect(c);
+          }}
+          onCancel={() => setProdConfirm(null)}
+        />
+      )}
+
+      {hostKey && (
+        <HostKeyDialog
+          prompt={hostKey}
+          onTrust={() => {
+            const p = pending.current;
+            const hk = hostKey;
+            setHostKey(null);
+            void (async () => {
+              await api.hostKeyTrust(hk.host, hk.port, hk.algorithm, hk.fingerprint);
+              if (p) await startConnect(p.connection, p.secret, p.jumpSecret);
+            })();
+          }}
+          onCancel={() => {
+            setHostKey(null);
+            const p = pending.current;
+            if (p) {
+              useAppStore.getState().updateTab(p.tabId, {
+                status: "closed",
+                detail: "host key recusada",
+              });
+              terminals.get(p.tabId)?.markClosed("host key recusada");
+            }
+            pending.current = null;
+          }}
+        />
+      )}
+
+      {authPrompt && (
+        <AuthDialog
+          prompt={authPrompt}
+          onSubmit={(secret) => {
+            const p = pending.current;
+            const forJump = authPrompt.forJump;
+            setAuthPrompt(null);
+            if (!p) return;
+            // Segredo do bastion e do destino viajam separados — reaproveitar o
+            // mesmo campo fazia o diálogo entrar em loop com bastion por senha.
+            if (forJump) void startConnect(p.connection, p.secret, secret);
+            else void startConnect(p.connection, secret, p.jumpSecret);
+          }}
+          onCancel={() => {
+            setAuthPrompt(null);
+            const p = pending.current;
+            if (p) {
+              useAppStore.getState().updateTab(p.tabId, {
+                status: "closed",
+                detail: "autenticação cancelada",
+              });
+              terminals.get(p.tabId)?.markClosed("autenticação cancelada");
+            }
+            pending.current = null;
+          }}
+        />
+      )}
+    </div>
+  );
+}

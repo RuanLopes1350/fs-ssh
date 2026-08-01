@@ -1,0 +1,1035 @@
+:root {
+  --bg: #0b0e14;
+  --bg-raised: #11151d;
+  --bg-hover: #1a1f2b;
+  --border: #222836;
+  --border-strong: #2f374a;
+  --text: #dbe1ea;
+  --text-dim: #8b95a7;
+  --text-faint: #5c6678;
+  --accent: #58a6ff;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --ok: #4ade80;
+  --radius: 7px;
+  --sidebar-w: 268px;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 6px 8px;
+  width: 100%;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  height: 100%;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border);
+  min-height: 0;
+}
+
+/* Faixa arrastável sob os semáforos do macOS. */
+.sidebar__drag {
+  height: 38px;
+  flex: none;
+}
+
+.sidebar__search {
+  padding: 0 10px 8px;
+}
+
+.sidebar__section {
+  padding: 4px 10px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar__list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 0 6px 12px;
+  min-height: 0;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 10px 8px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+}
+
+.tag[data-active="true"] {
+  color: var(--text);
+  border-color: currentColor;
+}
+
+.tag__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+/* A cor da conexão banha a linha inteira — borda fina e fundo bem diluído.
+   `borderColor` e `background` vêm inline, calculados da cor da conexão. */
+.conn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  margin-bottom: 3px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    filter 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.conn:hover,
+.conn:focus-visible {
+  outline: none;
+  /* Realça a mesma cor em vez de trocar por um cinza genérico: no hover a
+     identidade do servidor fica mais forte, não menos. */
+  filter: brightness(1.55);
+  box-shadow: 0 0 0 1px currentColor inset;
+}
+
+.conn__edit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  flex: none;
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.conn:hover .conn__edit,
+.conn:focus-within .conn__edit,
+.conn__edit:focus-visible {
+  opacity: 1;
+}
+
+.conn__edit:hover {
+  background: #ffffff1a;
+  color: var(--text);
+}
+
+.conn__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.conn__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conn__host {
+  color: var(--text-faint);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prod-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--danger);
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 0 3px;
+  flex: none;
+}
+
+/* -------------------------------------------------------------------- main */
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tabbar {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  height: 38px;
+  padding-left: 6px;
+  overflow-x: auto;
+  flex: none;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  max-width: 220px;
+  border-top: 2px solid transparent;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.tab[data-active="true"] {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.tab__close {
+  opacity: 0;
+  color: var(--text-faint);
+  display: flex;
+}
+
+.tab:hover .tab__close {
+  opacity: 1;
+}
+
+.tab__status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.toolbar {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  flex: none;
+}
+
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--text-dim);
+}
+
+.icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.icon-btn[data-active="true"] {
+  background: var(--accent);
+  color: #05080f;
+}
+
+/* Barra fina no topo do painel com a cor da conexão — o mesmo sinal da
+   sidebar, agora sempre visível enquanto se digita. */
+.session-strip {
+  height: 3px;
+  flex: none;
+}
+
+.session-strip[data-production="true"] {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--danger) 0 12px,
+    #7f1d1d 12px 24px
+  );
+}
+
+.workarea {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Cada aba tem um slot próprio; a sobreposição de erro vive aqui e não num
+   banner global, para ficar claro de qual sessão é a falha. */
+.term-slot {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminal-host {
+  /* `.term-slot` é flex; sem `flex: 1` esta caixa encolhe para o tamanho do
+     conteúdo e o fit-addon calcula um terminal de ~2 colunas. */
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 0 0 8px;
+}
+
+.term-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  /* Escurece o terminal sem escondê-lo: o scrollback com a última saída do
+     servidor costuma explicar a falha melhor que a mensagem de erro. */
+  background: #05070bd9;
+  backdrop-filter: blur(1.5px);
+}
+
+.term-overlay--quiet {
+  background: #05070b99;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.term-overlay__card {
+  max-width: 460px;
+  padding: 18px 20px;
+  background: var(--bg-raised);
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px #000a;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.term-overlay__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.term-overlay__msg {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #fecaca;
+  background: #7f1d1d33;
+  border-radius: 6px;
+  padding: 8px 10px;
+  word-break: break-word;
+}
+
+.term-overlay__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  /* Filho de `.workarea`, que é flex: sem `flex: 1` a caixa encolhe para o
+     tamanho do texto e o "centralizado" fica colado à esquerda. */
+  flex: 1;
+  height: 100%;
+  text-align: center;
+  color: var(--text-faint);
+}
+
+.kbd {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--text-dim);
+}
+
+/* ------------------------------------------------------------------ modais */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: #05070bcc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 24px;
+}
+
+.modal {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 560px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 60px #000a;
+}
+
+.modal--wide {
+  max-width: 760px;
+}
+
+.modal__head {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal__body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal__foot {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field > label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+}
+
+.row > * {
+  flex: 1;
+}
+
+.btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+}
+
+.btn:hover {
+  background: var(--bg-hover);
+}
+
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #05080f;
+  font-weight: 600;
+}
+
+.btn--primary:hover {
+  filter: brightness(1.1);
+  background: var(--accent);
+}
+
+.btn--danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* "Nova conexão" fica discreto de propósito: é uma ação ocasional e não deve
+   competir por atenção com a lista de servidores logo acima. */
+.btn--quiet {
+  background: #05070b;
+  border-color: var(--border-strong);
+  color: var(--text-dim);
+}
+
+.btn--quiet:hover {
+  background: #000;
+  border-color: var(--text-faint);
+  color: var(--text);
+}
+
+/* ------------------------------------------------------------- ctx menu */
+
+.ctxmenu {
+  position: fixed;
+  z-index: 70;
+  min-width: 176px;
+  padding: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px #000a;
+}
+
+.ctxmenu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 5px;
+  text-align: left;
+  color: var(--text);
+}
+
+.ctxmenu__item:hover {
+  background: var(--bg-hover);
+}
+
+.ctxmenu__item[data-danger="true"] {
+  color: var(--danger);
+}
+
+.ctxmenu__item[data-sep="true"] {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  border-radius: 0 0 5px 5px;
+}
+
+.ctxmenu__icon {
+  display: flex;
+  width: 14px;
+  color: var(--text-faint);
+}
+
+.ctxmenu__item[data-danger="true"] .ctxmenu__icon {
+  color: inherit;
+}
+
+.fingerprint {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+  word-break: break-all;
+}
+
+.alert {
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.alert--danger {
+  background: #7f1d1d33;
+  border: 1px solid var(--danger);
+  color: #fecaca;
+}
+
+.alert--warn {
+  background: #78350f33;
+  border: 1px solid var(--warn);
+  color: #fde68a;
+}
+
+/* ------------------------------------------------------------------ swatch */
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+}
+
+.swatch[data-active="true"] {
+  border-color: var(--text);
+}
+
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  gap: 4px;
+}
+
+.icon-choice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.icon-choice[data-active="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* -------------------------------------------------------------------- sftp */
+
+.sftp {
+  width: 46%;
+  min-width: 380px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg-raised);
+  min-height: 0;
+}
+
+.sftp__panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 1;
+  min-height: 0;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
+
+.pane:last-child {
+  border-right: none;
+}
+
+.pane__head {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.pane__path {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+  flex: 1;
+}
+
+.pane__list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  width: 100%;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.file:hover {
+  background: var(--bg-hover);
+}
+
+.file[data-dragging="true"] {
+  opacity: 0.4;
+}
+
+/* Alvo de soltura: um diretório destacado dentro do painel. */
+.file[data-drop="true"] {
+  background: #58a6ff26;
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+/* Alvo de soltura: o painel inteiro (raiz do diretório atual). */
+.pane__list[data-drop="true"] {
+  background: #58a6ff14;
+  box-shadow: 0 0 0 2px var(--accent) inset;
+}
+
+.pane__list {
+  position: relative;
+}
+
+.drop-hint {
+  position: sticky;
+  bottom: 0;
+  padding: 5px 8px;
+  font-size: 11px;
+  text-align: center;
+  color: var(--accent);
+  background: var(--bg-raised);
+  border-top: 1px solid var(--accent);
+}
+
+.file__name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file__size {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+.transfers {
+  border-top: 1px solid var(--border);
+  max-height: 140px;
+  overflow-y: auto;
+  flex: none;
+}
+
+.transfer {
+  padding: 6px 8px;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.progress {
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress > div {
+  height: 100%;
+  background: var(--accent);
+}
+
+/* --------------------------------------------------------------- palette */
+
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: #05070b99;
+  display: flex;
+  justify-content: center;
+  padding-top: 14vh;
+  z-index: 60;
+}
+
+.palette {
+  width: 100%;
+  max-width: 560px;
+  height: fit-content;
+  max-height: 60vh;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 60px #000a;
+}
+
+.palette input {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+
+.palette__list {
+  overflow-y: auto;
+}
+
+.palette__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 14px;
+  text-align: left;
+}
+
+.palette__item[data-active="true"] {
+  background: var(--bg-hover);
+}
+
+.muted {
+  color: var(--text-faint);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* --------------------------------------------------------------- adições */
+
+/* Modal com abas: altura fixa para o quadro não "pular" ao trocar de aba. */
+.modal--tall {
+  height: min(640px, calc(100vh - 48px));
+}
+
+.modal--tall .modal__body {
+  flex: 1;
+}
+
+/* Conexão da aba ativa: anel na cor do servidor + ponto indicador. A cor de
+   fundo/borda mais forte vem inline (withAlpha). */
+.conn[data-active="true"] {
+  box-shadow: 0 0 0 1px currentColor inset;
+}
+
+.conn[data-dragging="true"] {
+  opacity: 0.45;
+}
+
+.conn__active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+}
+
+/* Cabeçalho de pasta como alvo de soltura de uma conexão. */
+.sidebar__folder[data-drop="true"] {
+  background: #58a6ff26;
+  box-shadow: 0 0 0 1px var(--accent) inset;
+  color: var(--text);
+}
+
+/* Sidebar oculta: o app vira uma coluna só, e a tabbar abre espaço para os
+   semáforos do macOS (que ficavam sobre a sidebar). */
+.app[data-sidebar="false"] {
+  grid-template-columns: 1fr;
+}
+
+.app[data-sidebar="false"] .tabbar {
+  padding-left: 78px;
+}
+
+/* Cabeçalho de pasta na sidebar: mesma tipografia das seções, mas clicável. */
+.sidebar__folder {
+  cursor: pointer;
+  border-radius: 5px;
+  user-select: none;
+}
+
+.sidebar__folder:hover {
+  background: var(--bg-hover);
+  color: var(--text-dim);
+}
+
+/* Spinner de atividade — borda girando, sem imagens. */
+.spinner {
+  display: inline-block;
+  flex: none;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Busca no terminal (⌘F): flutua no canto sem empurrar o layout. */
+.term-search {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px #000a;
+}
+
+.term-search input {
+  width: 200px;
+  border: none;
+  background: transparent;
+  padding: 4px 6px;
+}
+
+/* Broadcast ligado: contorno âmbar na área de trabalho + selo na toolbar.
+   O sinal precisa ser visível de canto de olho antes de digitar. */
+.workarea[data-broadcast="true"] {
+  box-shadow: 0 0 0 2px var(--warn) inset;
+}
+
+.broadcast-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #05080f;
+  background: var(--warn);
+  border-radius: 3px;
+  padding: 2px 5px;
+  align-self: center;
+}
+
+/* Painel de containers Docker. */
+.docker {
+  width: 34%;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg-raised);
+  min-height: 0;
+}
+
+.docker__list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.docker__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.docker__item:hover {
+  background: var(--bg-hover);
+}
+
+.docker__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
