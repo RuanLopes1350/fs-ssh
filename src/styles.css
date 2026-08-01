@@ -908,17 +908,21 @@ textarea:focus {
 /* ------------------------------------------------------------ split panes */
 
 /* Um painel (folha da árvore de splits). O anel de foco só aparece quando a
-   aba tem mais de um painel — com um só, seria ruído. */
+   aba tem mais de um painel — com um só, seria ruído. A borda existe sempre
+   (transparente) para o terminal não mudar de tamanho ao focar; box-shadow
+   inset não serve aqui porque o canvas do xterm pinta por cima do sombreado
+   nos lados sem padding (direita e baixo). */
 .pane-slot {
   position: relative;
   display: flex;
   flex: 1;
   min-width: 0;
   min-height: 0;
+  border: 1px solid transparent;
 }
 
 .pane-slot[data-focused="true"] {
-  box-shadow: 0 0 0 1px var(--accent) inset;
+  border-color: var(--accent);
 }
 
 .split {
