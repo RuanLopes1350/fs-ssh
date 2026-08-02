@@ -2,23 +2,17 @@ use serde_json::json;
 
 use super::models::Theme;
 
-/// Paletas embutidas. O formato é exatamente o objeto `ITheme` do xterm.js, então
-/// o frontend joga direto em `term.options.theme` sem conversão.
+/// Paletas embutidas.
+///
+/// Os valores vêm do iTerm2-Color-Schemes (mbadolato), a coleção que iTerm2,
+/// Windows Terminal, Alacritty e afins usam como referência — assim o mesmo
+/// tema aqui e no terminal do sistema tem exatamente as mesmas cores.
+///
+/// O formato é o objeto `ITheme` do xterm.js, então o frontend joga direto em
+/// `term.options.theme` sem conversão.
 pub fn builtin() -> Vec<Theme> {
     vec![
-        theme(
-            "builtin-nord",
-            "Nord",
-            "#2e3440",
-            "#d8dee9",
-            "#d8dee9",
-            "#434c5ecc",
-            [
-                "#3b4252", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#88c0d0",
-                "#e5e9f0", "#4c566a", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead",
-                "#8fbcbb", "#eceff4",
-            ],
-        ),
+        // ------------------------------------------------------------ escuros
         theme(
             "builtin-dracula",
             "Dracula",
@@ -33,16 +27,68 @@ pub fn builtin() -> Vec<Theme> {
             ],
         ),
         theme(
-            "builtin-solarized-dark",
-            "Solarized Dark",
-            "#002b36",
-            "#93a1a1",
-            "#93a1a1",
-            "#073642cc",
+            "builtin-nord",
+            "Nord",
+            "#2e3440",
+            "#d8dee9",
+            "#eceff4",
+            "#434c5ecc",
             [
-                "#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198",
-                "#eee8d5", "#586e75", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4",
-                "#93a1a1", "#fdf6e3",
+                "#3b4252", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#88c0d0",
+                "#e5e9f0", "#596377", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead",
+                "#8fbcbb", "#eceff4",
+            ],
+        ),
+        theme(
+            "builtin-tokyo-night",
+            "Tokyo Night Storm",
+            "#24283b",
+            "#c0caf5",
+            "#c0caf5",
+            "#364a82cc",
+            [
+                "#1d202f", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff",
+                "#a9b1d6", "#4e5575", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7",
+                "#7dcfff", "#c0caf5",
+            ],
+        ),
+        theme(
+            "builtin-catppuccin-mocha",
+            "Catppuccin Mocha",
+            "#1e1e2e",
+            "#cdd6f4",
+            "#f5e0dc",
+            "#585b70cc",
+            [
+                "#45475a", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5",
+                "#bac2de", "#585b70", "#f7aec2", "#c2ecbf", "#fcd682", "#aeccfc", "#f398da",
+                "#b1eae1", "#a6adc8",
+            ],
+        ),
+        theme(
+            "builtin-catppuccin-macchiato",
+            "Catppuccin Macchiato",
+            "#24273a",
+            "#cad3f5",
+            "#f4dbd6",
+            "#5b6078cc",
+            [
+                "#494d64", "#ed8796", "#a6da95", "#eed49f", "#8aadf4", "#f5bde6", "#8bd5ca",
+                "#b8c0e0", "#5b6078", "#f2a7b2", "#bde3b0", "#f4e3c1", "#adc5f7", "#f493da",
+                "#a5ded6", "#a5adcb",
+            ],
+        ),
+        theme(
+            "builtin-one-dark",
+            "Atom One Dark",
+            "#21252b",
+            "#abb2bf",
+            "#abb2bf",
+            "#323844cc",
+            [
+                "#21252b", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2",
+                "#abb2bf", "#767676", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd",
+                "#56b6c2", "#ffffff",
             ],
         ),
         theme(
@@ -51,7 +97,7 @@ pub fn builtin() -> Vec<Theme> {
             "#282828",
             "#ebdbb2",
             "#ebdbb2",
-            "#504945cc",
+            "#665c54cc",
             [
                 "#282828", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a",
                 "#a89984", "#928374", "#fb4934", "#b8bb26", "#fabd2f", "#83a598", "#d3869b",
@@ -59,16 +105,225 @@ pub fn builtin() -> Vec<Theme> {
             ],
         ),
         theme(
+            "builtin-solarized-dark",
+            "Solarized Dark",
+            "#002b36",
+            "#839496",
+            "#839496",
+            "#073642dd",
+            [
+                "#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198",
+                "#eee8d5", "#335e69", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4",
+                "#93a1a1", "#fdf6e3",
+            ],
+        ),
+        theme(
+            "builtin-kanagawa",
+            "Kanagawa Wave",
+            "#1f1f28",
+            "#dcd7ba",
+            "#dcd7ba",
+            "#2d4f67cc",
+            [
+                "#090618", "#c34043", "#76946a", "#c0a36e", "#7e9cd8", "#957fb8", "#6a9589",
+                "#c8c093", "#727169", "#e82424", "#98bb6c", "#e6c384", "#7fb4ca", "#938aa9",
+                "#7aa89f", "#dcd7ba",
+            ],
+        ),
+        theme(
+            "builtin-everforest-dark",
+            "Everforest Dark",
+            "#1e2326",
+            "#d3c6aa",
+            "#e69875",
+            "#4c3743cc",
+            [
+                "#7a8478", "#e67e80", "#a7c080", "#dbbc7f", "#7fbbb3", "#d699b6", "#83c092",
+                "#f2efdf", "#a6b0a0", "#f85552", "#8da101", "#dfa000", "#3a94c5", "#df69ba",
+                "#35a77c", "#fffbef",
+            ],
+        ),
+        theme(
+            "builtin-rose-pine",
+            "Rosé Pine",
+            "#191724",
+            "#e0def4",
+            "#e0def4",
+            "#403d52cc",
+            [
+                "#26233a", "#eb6f92", "#31748f", "#f6c177", "#9ccfd8", "#c4a7e7", "#ebbcba",
+                "#e0def4", "#6e6a86", "#eb6f92", "#31748f", "#f6c177", "#9ccfd8", "#c4a7e7",
+                "#ebbcba", "#e0def4",
+            ],
+        ),
+        theme(
+            "builtin-night-owl",
+            "Night Owl",
+            "#011627",
+            "#d6deeb",
+            "#7e57c2",
+            "#5f7e97aa",
+            [
+                "#011627", "#ef5350", "#22da6e", "#addb67", "#82aaff", "#c792ea", "#21c7a8",
+                "#ffffff", "#575656", "#ef5350", "#22da6e", "#ffeb95", "#82aaff", "#c792ea",
+                "#7fdbca", "#ffffff",
+            ],
+        ),
+        theme(
+            "builtin-ayu-dark",
+            "Ayu Dark",
+            "#0b0e14",
+            "#bfbdb6",
+            "#e6b450",
+            "#409fff55",
+            [
+                "#11151c", "#ea6c73", "#7fd962", "#f9af4f", "#53bdfa", "#cda1fa", "#90e1c6",
+                "#c7c7c7", "#686868", "#f07178", "#aad94c", "#ffb454", "#59c2ff", "#d2a6ff",
+                "#95e6cb", "#ffffff",
+            ],
+        ),
+        theme(
+            "builtin-ayu-mirage",
+            "Ayu Mirage",
+            "#1f2430",
+            "#cccac2",
+            "#ffcc66",
+            "#409fff55",
+            [
+                "#171b24", "#ed8274", "#87d96c", "#facc6e", "#6dcbfa", "#dabafa", "#90e1c6",
+                "#c7c7c7", "#686868", "#f28779", "#d5ff80", "#ffd173", "#73d0ff", "#dfbfff",
+                "#95e6cb", "#ffffff",
+            ],
+        ),
+        theme(
+            "builtin-github-dark",
+            "GitHub Dark",
+            "#0d1117",
+            "#e6edf3",
+            "#2f81f7",
+            "#3b528bcc",
+            [
+                "#484f58", "#ff7b72", "#3fb950", "#d29922", "#58a6ff", "#bc8cff", "#39c5cf",
+                "#b1bac4", "#6e7681", "#ffa198", "#56d364", "#e3b341", "#79c0ff", "#d2a8ff",
+                "#56d4dd", "#ffffff",
+            ],
+        ),
+        theme(
+            "builtin-monokai",
+            "Monokai",
+            "#0c0c0c",
+            "#d9d9d9",
+            "#fc971f",
+            "#343434dd",
+            [
+                "#1a1a1a", "#f4005f", "#98e024", "#fd971f", "#9d65ff", "#f4005f", "#58d1eb",
+                "#c4c5b5", "#625e4c", "#f4005f", "#98e024", "#e0d561", "#9d65ff", "#f4005f",
+                "#58d1eb", "#f6f6ef",
+            ],
+        ),
+        theme(
+            "builtin-material-ocean",
+            "Material Ocean",
+            "#0f111a",
+            "#8f93a2",
+            "#ffcc00",
+            "#1f2233dd",
+            [
+                "#546e7a", "#ff5370", "#c3e88d", "#ffcb6b", "#82aaff", "#c792ea", "#89ddff",
+                "#ffffff", "#546e7a", "#ff5370", "#c3e88d", "#ffcb6b", "#82aaff", "#c792ea",
+                "#89ddff", "#ffffff",
+            ],
+        ),
+        theme(
+            "builtin-tomorrow-night",
+            "Tomorrow Night",
+            "#1d1f21",
+            "#c5c8c6",
+            "#c5c8c6",
+            "#373b41dd",
+            [
+                "#000000", "#cc6666", "#b5bd68", "#f0c674", "#81a2be", "#b294bb", "#8abeb7",
+                "#ffffff", "#4c4c4c", "#cc6666", "#b5bd68", "#f0c674", "#81a2be", "#b294bb",
+                "#8abeb7", "#ffffff",
+            ],
+        ),
+        theme(
+            "builtin-snazzy",
+            "Snazzy",
+            "#1e1f29",
+            "#ebece6",
+            "#e4e4e4",
+            "#81aec688",
+            [
+                "#000000", "#fc4346", "#50fb7c", "#f0fb8c", "#49baff", "#fc4cb4", "#8be9fe",
+                "#ededec", "#555555", "#fc4346", "#50fb7c", "#f0fb8c", "#49baff", "#fc4cb4",
+                "#8be9fe", "#ededec",
+            ],
+        ),
+        theme(
+            "builtin-cobalt2",
+            "Cobalt2",
+            "#132738",
+            "#ffffff",
+            "#f0cc09",
+            "#18354fdd",
+            [
+                "#000000", "#ff0000", "#38de21", "#ffe50a", "#1460d2", "#ff005d", "#00bbbb",
+                "#bbbbbb", "#555555", "#f40e17", "#3bd01d", "#edc809", "#5555ff", "#ff55ff",
+                "#6ae3fa", "#ffffff",
+            ],
+        ),
+        // ------------------------------------------------------------- claros
+        theme(
             "builtin-github-light",
             "GitHub Light",
             "#ffffff",
-            "#24292f",
-            "#24292f",
+            "#1f2328",
+            "#0969da",
             "#0969da33",
             [
                 "#24292f", "#cf222e", "#116329", "#4d2d00", "#0969da", "#8250df", "#1b7c83",
                 "#6e7781", "#57606a", "#a40e26", "#1a7f37", "#633c01", "#218bff", "#a475f9",
                 "#3192aa", "#8c959f",
+            ],
+        ),
+        theme(
+            "builtin-solarized-light",
+            "Solarized Light",
+            "#fdf6e3",
+            "#657b83",
+            "#657b83",
+            "#eee8d5dd",
+            [
+                "#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198",
+                "#bbb5a2", "#002b36", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4",
+                "#93a1a1", "#fdf6e3",
+            ],
+        ),
+        theme(
+            "builtin-catppuccin-latte",
+            "Catppuccin Latte",
+            "#eff1f5",
+            "#4c4f69",
+            "#dc8a78",
+            "#acb0be99",
+            [
+                "#bcc0cc", "#d20f39", "#40a02b", "#df8e1d", "#1e66f5", "#ea76cb", "#179299",
+                "#5c5f77", "#acb0be", "#e7103f", "#46b02f", "#e49931", "#3878f6", "#ef95d7",
+                "#19a1a8", "#6c6f85",
+            ],
+        ),
+        theme(
+            "builtin-gruvbox-light",
+            "Gruvbox Light",
+            "#fbf1c7",
+            "#3c3836",
+            "#3c3836",
+            "#d5c4a1dd",
+            [
+                "#fbf1c7", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a",
+                "#7c6f64", "#928374", "#9d0006", "#79740e", "#b57614", "#076678", "#8f3f71",
+                "#427b58", "#3c3836",
             ],
         ),
         // Vermelha, para marcar produção: o tema em si já é um aviso.

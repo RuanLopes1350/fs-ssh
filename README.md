@@ -54,7 +54,8 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. Feito com **Taur
 - **⌘⇧F** entra em tela cheia mostrando só o terminal (sem sidebar nem barra de abas), com uma saída discreta no canto.
 
 ### Temas
-- 6 temas embutidos + **editor de temas** com preview ao vivo nos terminais abertos e **importação de `.itermcolors`**.
+- **25 temas embutidos** com as paletas oficiais do [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes) — Dracula, Nord, Tokyo Night Storm, Catppuccin (Mocha/Macchiato/Latte), Atom One Dark, Gruvbox (Dark/Light), Solarized (Dark/Light), Kanagawa, Everforest, Rosé Pine, Night Owl, Ayu (Dark/Mirage), GitHub (Dark/Light), Monokai, Material Ocean, Tomorrow Night, Snazzy, Cobalt2 e um vermelho para produção.
+- **Editor de temas** com preview ao vivo nos terminais abertos e **importação de `.itermcolors`**.
 - Tema por conexão, com preview imediato ao trocar no formulário.
 
 ### Segurança
