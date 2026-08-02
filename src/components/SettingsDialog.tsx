@@ -107,6 +107,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         "Com o modo broadcast ligado, o que você digita não é enviado para abas marcadas como PROD.",
       )}
       {check(
+        "dimInactivePanes",
+        "Escurecer painéis sem foco",
+        "Numa aba dividida, o painel que não recebe o teclado fica levemente escurecido (passar o mouse já clareia). O painel em foco também ganha uma faixa na cor da conexão.",
+      )}
+      {check(
         "autoRecord",
         "Gravar todas as sessões automaticamente",
         "Salva a saída do terminal em arquivos de texto (0600) na pasta de gravações. Cuidado: registra tudo que aparece na tela, inclusive segredos. As gravações ficam no painel de gestão → Gravações.",
@@ -131,7 +136,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           {backupBusy && <Spinner />}
         </div>
         <span className="muted" style={{ fontSize: 11 }}>
-          Salva uma cópia do catálogo (conexões, pastas, tags, temas, snippets e hosts
+          Salva uma cópia do catálogo (conexões, pastas, temas, snippets e hosts
           confirmados). Senhas nunca ficam no banco. Para restaurar, substitua o{" "}
           <code>app.db</code> no diretório de dados do app com o app fechado.
         </span>

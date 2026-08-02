@@ -68,6 +68,8 @@ export interface Settings {
   autoRecord: boolean;
   /** Shell do terminal local; vazio usa o `$SHELL` do sistema. */
   localShell: string;
+  /** Escurecer os painéis sem foco quando a aba está dividida. */
+  dimInactivePanes: boolean;
 }
 
 /** Conexão sintética do terminal local — nunca vai para o banco. */
@@ -227,6 +229,8 @@ interface AppStore {
   /** Remove o painel; se era o último da aba, a aba vai junto. */
   removePane: (paneId: string) => void;
   closeTab: (id: string) => void;
+  /** Move a aba arrastada para a posição da aba sob o cursor. */
+  moveTab: (dragId: string, overId: string) => void;
   setActiveTab: (id: string | null) => void;
   setActivePane: (tabId: string, paneId: string) => void;
   setSplitRatio: (tabId: string, splitId: string, ratio: number) => void;
@@ -269,6 +273,7 @@ export const useAppStore = create<AppStore>()(
         autoReconnect: true,
         autoRecord: false,
         localShell: "",
+        dimInactivePanes: true,
       },
       lastSessionConnectionIds: [],
 
@@ -411,6 +416,17 @@ export const useAppStore = create<AppStore>()(
           const activeTabId =
             s.activeTabId === id ? (tabs[tabs.length - 1]?.id ?? null) : s.activeTabId;
           return { tabs, activeTabId, lastSessionConnectionIds: snapshotSession(tabs) };
+        }),
+
+      moveTab: (dragId, overId) =>
+        set((s) => {
+          const from = s.tabs.findIndex((t) => t.id === dragId);
+          const to = s.tabs.findIndex((t) => t.id === overId);
+          if (from < 0 || to < 0 || from === to) return {};
+          const tabs = [...s.tabs];
+          const [moved] = tabs.splice(from, 1);
+          tabs.splice(to, 0, moved);
+          return { tabs };
         }),
 
       setActiveTab: (id) => set({ activeTabId: id }),

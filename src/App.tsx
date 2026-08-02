@@ -84,6 +84,7 @@ export default function App() {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const sidebarRail = useAppStore((s) => s.sidebarRail);
   const focusMode = useAppStore((s) => s.focusMode);
+  const dimPanes = useAppStore((s) => s.settings.dimInactivePanes);
   const loadAll = useAppStore((s) => s.loadAll);
 
   const [editing, setEditing] = useState<Connection | null>(null);
@@ -93,6 +94,8 @@ export default function App() {
   /** Quando ligado, a paleta abre listando só snippets (botão da toolbar). */
   const [paletteSnippets, setPaletteSnippets] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  /** Aba sendo arrastada na barra (reordenamento). */
+  const [dragTabId, setDragTabId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [hostKey, setHostKey] = useState<HostKeyPrompt | null>(null);
   const [authPrompt, setAuthPrompt] = useState<AuthPrompt | null>(null);
@@ -676,6 +679,7 @@ export default function App() {
       return (
         <div
           className="pane-slot"
+          data-multi={multi}
           data-focused={multi && focused}
           style={{ "--pane-accent": pane.color } as React.CSSProperties}
           onMouseDownCapture={() => {
@@ -695,6 +699,7 @@ export default function App() {
     return (
       <div
         className="pane-slot"
+        data-multi={multi}
         data-focused={multi && focused}
         // O anel de foco herda a identidade da conexão (vermelho em produção),
         // não o azul do sistema: com dois painéis lado a lado é o que diz de
@@ -815,6 +820,7 @@ export default function App() {
       data-sidebar={sidebarOpen && !focusMode}
       data-rail={sidebarRail}
       data-focus={focusMode}
+      data-dim-panes={dimPanes}
     >
       {sidebarOpen && !focusMode && (
         <Sidebar
@@ -876,6 +882,26 @@ export default function App() {
                 tabIndex={t.id === activeTabId ? 0 : -1}
                 aria-selected={t.id === activeTabId}
                 data-active={t.id === activeTabId}
+                data-dragging={dragTabId === t.id}
+                draggable
+                // Reordena ao passar por cima, como nos navegadores: a aba
+                // arrastada troca de lugar na hora, sem marcador de inserção.
+                onDragStart={(e) => {
+                  setDragTabId(t.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", t.id);
+                }}
+                onDragOver={(e) => {
+                  if (!dragTabId || dragTabId === t.id) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  useAppStore.getState().moveTab(dragTabId, t.id);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragTabId(null);
+                }}
+                onDragEnd={() => setDragTabId(null)}
                 style={{ borderTopColor: t.id === activeTabId ? s.color : "transparent" }}
                 onClick={() => useAppStore.getState().setActiveTab(t.id)}
               >

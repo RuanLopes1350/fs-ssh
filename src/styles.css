@@ -108,35 +108,6 @@ textarea:focus {
   min-height: 0;
 }
 
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 0 10px 8px;
-}
-
-.tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border-strong);
-  color: var(--text-dim);
-}
-
-.tag[data-active="true"] {
-  color: var(--text);
-  border-color: currentColor;
-}
-
-.tag__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-
 /* Linha de conexão discreta, no espírito da paleta ⌘K: quem carrega a
    identidade do servidor é o ícone colorido, não uma moldura por linha —
    com 20 servidores, 20 molduras coloridas viram ruído. */
@@ -969,18 +940,48 @@ textarea:focus {
   min-height: 0;
 }
 
-/* O anel de foco é um pseudo-elemento sobreposto (z-index acima do canvas do
-   xterm) em vez de borda: assim ele fecha nos quatro lados sem ser coberto
-   pelo terminal e sem tirar 1px do espaço útil a cada troca de foco. */
+/* Indicação de foco em split, em duas camadas complementares:
+
+   1. uma faixa de 2px no topo do painel focado, na cor da conexão — o mesmo
+      vocabulário da faixa que já marca a sessão ativa sob a barra de abas;
+   2. um escurecimento leve nos painéis SEM foco.
+
+   A moldura nos quatro lados foi abandonada: ela emoldurava o conteúdo, competia
+   com a saída do terminal e ficava ambígua com o contorno do broadcast. Faixa +
+   contraste dizem "é aqui que o que eu digitar vai cair" sem cercar nada. */
 .pane-slot[data-focused="true"]::after {
   content: "";
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
   /* `--pane-accent` vem inline com a cor da conexão (ou vermelho em produção). */
-  border: 1px solid var(--pane-accent, var(--accent));
-  border-radius: 2px;
+  background: var(--pane-accent, var(--accent));
   pointer-events: none;
   z-index: 5;
+}
+
+/* Só escurece quando existe outro painel para comparar. */
+.pane-slot[data-multi="true"][data-focused="false"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #05070b;
+  opacity: 0.3;
+  pointer-events: none;
+  z-index: 4;
+  transition: opacity 0.12s ease;
+}
+
+/* Passar o mouse já clareia o painel: dá para ler o log do outro lado sem
+   precisar tirar o foco de onde se está digitando. */
+.pane-slot[data-multi="true"][data-focused="false"]:hover::before {
+  opacity: 0.08;
+}
+
+.app[data-dim-panes="false"] .pane-slot::before {
+  display: none;
 }
 
 .split {
@@ -1120,6 +1121,19 @@ textarea:focus {
   border-top: 1px solid var(--border);
   font-size: 11px;
   color: var(--text-faint);
+}
+
+/* Aba sendo arrastada na reordenação. */
+.tab[data-dragging="true"] {
+  opacity: 0.4;
+}
+
+.tab {
+  cursor: grab;
+}
+
+.tab:active {
+  cursor: grabbing;
 }
 
 /* Contador de painéis na aba (⊞2, ⊞3…). */
