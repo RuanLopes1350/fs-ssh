@@ -1,6 +1,7 @@
 pub mod cmd;
 pub mod error;
 pub mod keys;
+pub mod local;
 pub mod ssh;
 pub mod store;
 
@@ -95,6 +96,7 @@ pub fn run() {
             cmd::ssh::ssh_sessions,
             cmd::ssh::ssh_broadcast,
             cmd::ssh::ssh_ping,
+            cmd::ssh::local_open,
             cmd::ssh::ssh_exec,
             cmd::ssh::docker_ps,
             // port forwarding

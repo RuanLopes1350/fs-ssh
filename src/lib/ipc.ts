@@ -95,6 +95,12 @@ export const api = {
     onOutput: Channel<ArrayBuffer>,
   ) => invoke<SessionInfo>("ssh_connect", { args, onOutput }),
 
+  /** Abre um shell local com PTY — mesma interface de uma sessão SSH. */
+  localOpen: (
+    args: { cols: number; rows: number; shell?: string },
+    onOutput: Channel<ArrayBuffer>,
+  ) => invoke<SessionInfo>("local_open", { ...args, onOutput }),
+
   sshWrite: (sessionId: string, data: number[]) =>
     invoke<void>("ssh_write", { sessionId, data }),
   sshResize: (sessionId: string, cols: number, rows: number) =>

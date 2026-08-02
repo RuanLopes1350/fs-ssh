@@ -8,6 +8,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { api, Channel } from "../lib/ipc";
+import { LOCAL_CONNECTION_ID } from "../lib/types";
 import type { AppError, SessionInfo, TerminalPalette } from "../lib/types";
 
 const encoder = new TextEncoder();
@@ -41,6 +42,8 @@ export class TerminalSession {
     readonly connectionId: string,
     palette: TerminalPalette,
     fontSize: number,
+    /** Shell a usar no terminal local (vazio = `$SHELL`). */
+    readonly localShell?: string,
   ) {
     this.term = new Terminal({
       fontFamily:
@@ -83,10 +86,15 @@ export class TerminalSession {
     };
 
     const { cols, rows } = this.currentSize();
-    const info = await api.sshConnect(
-      { connectionId: this.connectionId, cols, rows, secret, jumpSecret },
-      onOutput,
-    );
+    // O terminal local é uma "conexão" sintética: mesmo canal de saída, mas o
+    // backend abre um PTY em vez de uma sessão SSH.
+    const info =
+      this.connectionId === LOCAL_CONNECTION_ID
+        ? await api.localOpen({ cols, rows, shell: this.localShell }, onOutput)
+        : await api.sshConnect(
+            { connectionId: this.connectionId, cols, rows, secret, jumpSecret },
+            onOutput,
+          );
     this.info = info;
     this.closed = false;
 

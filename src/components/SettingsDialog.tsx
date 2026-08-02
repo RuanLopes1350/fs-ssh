@@ -37,11 +37,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const check = (
-    key: keyof typeof settings,
-    label: string,
-    hint: string,
-  ) => (
+  type BoolSetting = {
+    [K in keyof typeof settings]: (typeof settings)[K] extends boolean ? K : never;
+  }[keyof typeof settings];
+
+  const check = (key: BoolSetting, label: string, hint: string) => (
     <label style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer" }}>
       <input
         type="checkbox"
@@ -70,15 +70,25 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         </button>
       }
     >
-      <div className="field" style={{ maxWidth: 180 }}>
-        <label>Tamanho da fonte do terminal (⌘+ / ⌘−)</label>
-        <input
-          type="number"
-          min={9}
-          max={24}
-          value={fontSize}
-          onChange={(e) => setFontSize(Number(e.target.value) || 13)}
-        />
+      <div className="row">
+        <div className="field" style={{ maxWidth: 180 }}>
+          <label>Tamanho da fonte do terminal (⌘+ / ⌘−)</label>
+          <input
+            type="number"
+            min={9}
+            max={24}
+            value={fontSize}
+            onChange={(e) => setFontSize(Number(e.target.value) || 13)}
+          />
+        </div>
+        <div className="field">
+          <label>Shell do terminal local</label>
+          <input
+            value={settings.localShell}
+            placeholder="vazio = $SHELL do sistema"
+            onChange={(e) => setSettings({ localShell: e.target.value })}
+          />
+        </div>
       </div>
 
       {check(

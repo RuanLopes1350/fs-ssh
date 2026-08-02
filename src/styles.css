@@ -898,6 +898,15 @@ textarea:focus {
   opacity: 0.45;
 }
 
+/* Terminal local: separado da lista de servidores por uma linha, para deixar
+   claro que não é uma conexão remota. */
+.conn--local {
+  margin-bottom: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
 .conn__active-dot {
   width: 6px;
   height: 6px;

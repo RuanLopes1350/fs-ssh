@@ -31,6 +31,7 @@ import { ConnectionSheet, EMPTY_CONNECTION } from "./connections/ConnectionSheet
 import { ManagePanel } from "./connections/ManagePanel";
 import { DockerPanel } from "./docker/DockerPanel";
 import { api, asAppError } from "./lib/ipc";
+import { LOCAL_CONNECTION_ID } from "./lib/types";
 import type {
   AppError,
   AuthPrompt,
@@ -166,6 +167,7 @@ export default function App() {
             connection.id,
             store.paletteFor(connection.id),
             store.fontSize,
+            store.settings.localShell,
           ),
         );
         const where = placement.current ?? { type: "newtab" as const };
@@ -185,6 +187,7 @@ export default function App() {
               connection.id,
               store.paletteFor(connection.id),
               store.fontSize,
+              store.settings.localShell,
             ),
           );
         }
@@ -421,6 +424,10 @@ export default function App() {
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
   const activePane = activePaneOf(activeTab);
+  /** SFTP, Docker e túneis exigem SSH — o shell local não tem canal para isso. */
+  const isLocalPane = activePane?.connectionId === LOCAL_CONNECTION_ID;
+  const remoteSessionId =
+    activePane?.sessionId && !isLocalPane ? activePane.sessionId : null;
 
   /** Abre a conexão num split da aba ativa (nova aba se não houver nenhuma). */
   const connectInSplit = (connection: Connection, dir: SplitDir) => {
@@ -899,7 +906,12 @@ export default function App() {
             <button
               className="icon-btn"
               data-active={sftpOpen}
-              title="Painel de arquivos (SFTP)"
+              disabled={isLocalPane}
+              title={
+                isLocalPane
+                  ? "SFTP só existe em sessão SSH"
+                  : "Painel de arquivos (SFTP)"
+              }
               onClick={() => useAppStore.getState().toggleSftp()}
             >
               <FolderTree size={14} />
@@ -907,7 +919,12 @@ export default function App() {
             <button
               className="icon-btn"
               data-active={dockerOpen}
-              title="Containers Docker/Podman do host"
+              disabled={isLocalPane}
+              title={
+                isLocalPane
+                  ? "Containers do host remoto — precisa de sessão SSH"
+                  : "Containers Docker/Podman do host"
+              }
               onClick={() => useAppStore.getState().toggleDocker()}
             >
               <Container size={14} />
@@ -915,7 +932,12 @@ export default function App() {
             <button
               className="icon-btn"
               data-active={tunnelsOpen}
-              title="Túneis (port forwarding -L/-R)"
+              disabled={isLocalPane}
+              title={
+                isLocalPane
+                  ? "Túneis exigem sessão SSH"
+                  : "Túneis (port forwarding -L/-R)"
+              }
               onClick={() => useAppStore.getState().toggleTunnels()}
             >
               <Cable size={14} />
@@ -968,16 +990,16 @@ export default function App() {
             ))
           )}
 
-          {sftpOpen && activePane?.sessionId && (
-            <SftpPanel key={activePane.sessionId} sessionId={activePane.sessionId} />
+          {sftpOpen && remoteSessionId && (
+            <SftpPanel key={remoteSessionId} sessionId={remoteSessionId} />
           )}
-          {dockerOpen && activePane?.sessionId && (
-            <DockerPanel key={activePane.sessionId} sessionId={activePane.sessionId} />
+          {dockerOpen && remoteSessionId && (
+            <DockerPanel key={remoteSessionId} sessionId={remoteSessionId} />
           )}
-          {tunnelsOpen && activePane?.sessionId && (
+          {tunnelsOpen && remoteSessionId && activePane && (
             <TunnelsPanel
-              key={activePane.sessionId}
-              sessionId={activePane.sessionId}
+              key={remoteSessionId}
+              sessionId={remoteSessionId}
               connectionId={activePane.connectionId}
             />
           )}

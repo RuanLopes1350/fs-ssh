@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 
 import { ConnIcon } from "../components/Icon";
+import { LOCAL_CONNECTION } from "../store/useAppStore";
 import type { Connection } from "../lib/types";
 
 /**
@@ -36,7 +37,7 @@ export function PanePicker({
       c.name.toLowerCase().includes(query) ||
       c.host.toLowerCase().includes(query) ||
       c.username.toLowerCase().includes(query);
-    const list = connections.filter(match);
+    const list = [LOCAL_CONNECTION, ...connections].filter(match);
     // Sessão de origem primeiro: Enter direto = duplicar.
     return [...list].sort((a, b) =>
       a.id === currentId ? -1 : b.id === currentId ? 1 : 0,

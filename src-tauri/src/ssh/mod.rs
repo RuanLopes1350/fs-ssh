@@ -54,6 +54,11 @@ pub struct SessionHandle {
 }
 
 impl SessionHandle {
+    /// A task da sessão ainda está de pé (o canal de comandos não fechou).
+    pub fn is_alive(&self) -> bool {
+        !self.tx.is_closed()
+    }
+
     pub async fn send(&self, cmd: SessionCmd) -> AppResult<()> {
         self.tx
             .send(cmd)

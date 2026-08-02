@@ -224,6 +224,69 @@ pub async fn ssh_broadcast(
     Ok(failed)
 }
 
+/// Abre um shell local com PTY. Do frontend em diante é uma sessão como
+/// qualquer outra — mesmo canal de saída, mesmos write/resize/gravação.
+#[tauri::command]
+pub async fn local_open(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    cols: u16,
+    rows: u16,
+    shell: Option<String>,
+    on_output: IpcChannel<InvokeResponseBody>,
+) -> AppResult<SessionInfo> {
+    let session_id = SessionManager::new_id();
+    let (tx, shell_path) = crate::local::spawn(
+        app,
+        session_id.clone(),
+        shell.as_deref(),
+        cols,
+        rows,
+        on_output,
+    )?;
+
+    let info = SessionInfo {
+        session_id: session_id.clone(),
+        connection_id: crate::local::LOCAL_CONNECTION_ID.to_string(),
+        host: "localhost".into(),
+        username: std::env::var("USER").unwrap_or_else(|_| "local".into()),
+        fingerprint: String::new(),
+        banner: None,
+    };
+
+    state
+        .sessions
+        .insert(info.clone(), tx, Default::default())
+        .await;
+    state.db.log_event(
+        "info",
+        "local",
+        None,
+        "Terminal local",
+        &format!("shell local aberto ({shell_path})"),
+    );
+
+    let sessions = state.sessions.clone();
+    let db = state.db.clone();
+    let sid = session_id.clone();
+    // A task da sessão emite `session-closed` sozinha; aqui só limpamos o
+    // registro quando o shell morre.
+    tauri::async_runtime::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(2));
+        loop {
+            ticker.tick().await;
+            match sessions.get(&sid).await {
+                Ok(h) if h.is_alive() => continue,
+                _ => break,
+            }
+        }
+        sessions.remove(&sid).await;
+        db.log_event("info", "local", None, "Terminal local", "shell encerrado");
+    });
+
+    Ok(info)
+}
+
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecResult {

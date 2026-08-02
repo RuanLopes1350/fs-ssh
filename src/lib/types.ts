@@ -59,6 +59,12 @@ export interface Theme {
   json: TerminalPalette;
 }
 
+/**
+ * Id da "conexão" sintética do terminal local. Não existe no banco: serve para
+ * o resto da UI tratar o shell da máquina como mais uma conexão.
+ */
+export const LOCAL_CONNECTION_ID = "__local__";
+
 export type AuthMethod = "auto" | "agent" | "key" | "password";
 
 export interface Connection {

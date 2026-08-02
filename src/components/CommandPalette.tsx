@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CornerDownLeft, Server, TerminalSquare } from "lucide-react";
 
 import { ConnIcon } from "./Icon";
-import { useAppStore } from "../store/useAppStore";
+import { LOCAL_CONNECTION, useAppStore } from "../store/useAppStore";
 import type { Connection, Snippet } from "../lib/types";
 
 export type PaletteAction =
@@ -46,7 +46,8 @@ export function CommandPalette({
     const conns: PaletteAction[] =
       only === "snippets"
         ? []
-        : connections
+        : // O terminal local entra na lista como qualquer servidor.
+          [LOCAL_CONNECTION, ...connections]
             .filter((c) => !query || match(c.name) || match(c.host) || match(c.username))
             .slice(0, 20)
             .map((connection) => ({ type: "connect", connection }));

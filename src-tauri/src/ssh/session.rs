@@ -59,8 +59,10 @@ pub enum SessionCmd {
 /// As sequências de escape são removidas: o objetivo é um arquivo legível
 /// (auditoria, "o que eu rodei mesmo?"), não um replay fiel — para replay o
 /// caminho seria asciinema, que é outro formato.
-struct Recorder {
-    file: std::fs::File,
+///
+/// É público porque o terminal local usa exatamente a mesma gravação.
+pub struct Recorder {
+    file: Option<std::fs::File>,
     state: EscState,
 }
 
@@ -74,7 +76,33 @@ enum EscState {
 }
 
 impl Recorder {
-    fn create(path: &str) -> std::io::Result<Self> {
+    /// Gravador desligado — o estado normal de uma sessão.
+    pub fn none() -> Self {
+        Recorder {
+            file: None,
+            state: EscState::Text,
+        }
+    }
+
+    /// Liga a gravação em `path` (fechando a anterior) ou desliga com `None`.
+    pub fn set(&mut self, path: Option<String>) -> Result<(), String> {
+        let Some(path) = path else {
+            self.finish();
+            return Ok(());
+        };
+        match Self::create_file(&path) {
+            Ok(file) => {
+                self.finish();
+                self.file = Some(file);
+                self.state = EscState::Text;
+                tracing::info!("gravação de sessão iniciada em {path}");
+                Ok(())
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    fn create_file(path: &str) -> std::io::Result<std::fs::File> {
         use std::io::Write;
         if let Some(dir) = std::path::Path::new(path).parent() {
             std::fs::create_dir_all(dir)?;
@@ -94,14 +122,14 @@ impl Recorder {
             "── gravação iniciada em {} ──",
             chrono::Local::now().format("%d/%m/%Y %H:%M:%S")
         )?;
-        Ok(Recorder {
-            file,
-            state: EscState::Text,
-        })
+        Ok(file)
     }
 
-    fn write(&mut self, data: &[u8]) {
+    pub fn write(&mut self, data: &[u8]) {
         use std::io::Write;
+        if self.file.is_none() {
+            return;
+        }
         let mut out = Vec::with_capacity(data.len());
         for &b in data {
             match self.state {
@@ -135,19 +163,23 @@ impl Recorder {
                 }
             }
         }
-        if !out.is_empty() {
-            let _ = self.file.write_all(&out);
+        if let (Some(file), false) = (self.file.as_mut(), out.is_empty()) {
+            let _ = file.write_all(&out);
         }
     }
 
-    fn finish(&mut self) {
+    pub fn finish(&mut self) {
         use std::io::Write;
+        let Some(file) = self.file.as_mut() else {
+            return;
+        };
         let _ = writeln!(
-            self.file,
+            file,
             "\n── gravação encerrada em {} ──",
             chrono::Local::now().format("%d/%m/%Y %H:%M:%S")
         );
-        let _ = self.file.flush();
+        let _ = file.flush();
+        self.file = None;
     }
 }
 
@@ -188,7 +220,7 @@ pub async fn run_session(
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     let mut exit_status: Option<u32> = None;
-    let mut recorder: Option<Recorder> = None;
+    let mut recorder = Recorder::none();
     let reason;
 
     loop {
@@ -209,22 +241,7 @@ pub async fn run_session(
                     let _ = reply.send(open_sftp(&handle).await);
                 }
                 Some(SessionCmd::Record { path, reply }) => {
-                    let r = match path {
-                        Some(p) => match Recorder::create(&p) {
-                            Ok(rec) => {
-                                if let Some(old) = recorder.as_mut() { old.finish(); }
-                                recorder = Some(rec);
-                                tracing::info!("gravação de sessão iniciada em {p}");
-                                Ok(())
-                            }
-                            Err(e) => Err(e.to_string()),
-                        },
-                        None => {
-                            if let Some(mut old) = recorder.take() { old.finish(); }
-                            Ok(())
-                        }
-                    };
-                    let _ = reply.send(r);
+                    let _ = reply.send(recorder.set(path));
                 }
                 Some(SessionCmd::OpenDirectTcpip { host, port, reply }) => {
                     let r = handle
@@ -272,9 +289,7 @@ pub async fn run_session(
 
             msg = read.wait() => match msg {
                 Some(ChannelMsg::Data { data }) => {
-                    if let Some(rec) = recorder.as_mut() {
-                        rec.write(&data);
-                    }
+                    recorder.write(&data);
                     buf.extend_from_slice(&data);
                     if buf.len() >= FLUSH_BYTES {
                         flush(&out, &mut buf);
@@ -283,9 +298,7 @@ pub async fn run_session(
                 // stderr do PTY chega como extended data; no terminal os dois
                 // fluxos são a mesma tela, então vão para o mesmo buffer.
                 Some(ChannelMsg::ExtendedData { data, .. }) => {
-                    if let Some(rec) = recorder.as_mut() {
-                        rec.write(&data);
-                    }
+                    recorder.write(&data);
                     buf.extend_from_slice(&data);
                     if buf.len() >= FLUSH_BYTES {
                         flush(&out, &mut buf);
@@ -318,9 +331,7 @@ pub async fn run_session(
         flush(&out, &mut buf);
     }
 
-    if let Some(mut rec) = recorder.take() {
-        rec.finish();
-    }
+    recorder.finish();
 
     let _ = handle
         .disconnect(russh::Disconnect::ByApplication, "", "en")

@@ -21,7 +21,12 @@ import { ConfirmDialog, InputDialog } from "../components/Dialogs";
 import { ConnIcon } from "../components/Icon";
 import { Tooltip } from "../components/ui/tooltip";
 import { api } from "../lib/ipc";
-import { activePaneOf, filterConnections, useAppStore } from "../store/useAppStore";
+import {
+  activePaneOf,
+  filterConnections,
+  LOCAL_CONNECTION,
+  useAppStore,
+} from "../store/useAppStore";
 import type { Connection, Folder } from "../lib/types";
 
 /** Id-sentinela da seção sem pasta, guardado junto com as pastas colapsadas. */
@@ -282,6 +287,16 @@ export function Sidebar(props: SidebarProps) {
       <aside className="sidebar sidebar--rail">
         <div className="sidebar__drag" data-tauri-drag-region />
         <div className="rail__list">
+          <Tooltip content={<span className="whitespace-nowrap">Terminal local</span>}>
+            <button
+              className="rail__item"
+              data-active={activeConnectionId === LOCAL_CONNECTION.id}
+              style={{ color: LOCAL_CONNECTION.color }}
+              onClick={() => props.onConnect(LOCAL_CONNECTION)}
+            >
+              <ConnIcon name={LOCAL_CONNECTION.icon} size={18} color={LOCAL_CONNECTION.color} />
+            </button>
+          </Tooltip>
           {railList.map((c) => (
             <Tooltip
               key={c.id}
@@ -373,6 +388,25 @@ export function Sidebar(props: SidebarProps) {
       )}
 
       <div className="sidebar__list">
+        {/* Fixo no topo: o shell da própria máquina, sempre a um clique. */}
+        <button
+          className="conn conn--local"
+          data-active={activeConnectionId === LOCAL_CONNECTION.id}
+          onClick={() => props.onConnect(LOCAL_CONNECTION)}
+          title="Abrir um shell nesta máquina"
+        >
+          <ConnIcon name={LOCAL_CONNECTION.icon} color={LOCAL_CONNECTION.color} size={16} />
+          <span className="conn__body">
+            <span className="conn__name">
+              <span className="conn__label">{LOCAL_CONNECTION.name}</span>
+            </span>
+            <span className="conn__host">shell desta máquina</span>
+          </span>
+          {activeConnectionId === LOCAL_CONNECTION.id && (
+            <span className="conn__active-dot" />
+          )}
+        </button>
+
         {folders.map((f) => {
           const conns = byFolder.get(f.id) ?? [];
           if (filtering && conns.length === 0) return null;

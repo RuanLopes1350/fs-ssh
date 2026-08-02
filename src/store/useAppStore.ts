@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 
 import { api } from "../lib/ipc";
 import { terminals } from "../terminal/session";
+import { LOCAL_CONNECTION_ID } from "../lib/types";
 import type {
   Connection,
   Folder,
@@ -56,7 +57,31 @@ export interface Settings {
   autoReconnect: boolean;
   /** Gravar a saída de toda sessão nova automaticamente. */
   autoRecord: boolean;
+  /** Shell do terminal local; vazio usa o `$SHELL` do sistema. */
+  localShell: string;
 }
+
+/** Conexão sintética do terminal local — nunca vai para o banco. */
+export const LOCAL_CONNECTION: Connection = {
+  id: LOCAL_CONNECTION_ID,
+  name: "Terminal local",
+  host: "localhost",
+  port: 0,
+  username: "",
+  authMethod: "auto",
+  identityId: null,
+  jumpHostId: null,
+  folderId: null,
+  color: "#8b95a7",
+  icon: "laptop",
+  themeId: null,
+  isProduction: false,
+  notes: "",
+  createdAt: "",
+  lastUsedAt: null,
+  useCount: 0,
+  tagIds: [],
+};
 
 export const FALLBACK_PALETTE: TerminalPalette = {
   background: "#11141b",
@@ -134,10 +159,18 @@ export function activePaneOf(tab: Tab | null | undefined): Pane | null {
   return tab.panes.find((p) => p.id === tab.activePaneId) ?? tab.panes[0] ?? null;
 }
 
-/** Conexões de todos os painéis abertos — base da restauração de sessão. */
+/**
+ * Conexões de todos os painéis abertos — base da restauração de sessão.
+ * O terminal local fica de fora: abrir um shell novo no boot não é o que se
+ * espera de "restaurar a sessão anterior".
+ */
 function snapshotSession(tabs: Tab[]): string[] {
   return [
-    ...new Set(tabs.flatMap((t) => t.panes.map((p) => p.connectionId).filter(Boolean))),
+    ...new Set(
+      tabs
+        .flatMap((t) => t.panes.map((p) => p.connectionId))
+        .filter((id) => id && id !== LOCAL_CONNECTION_ID),
+    ),
   ];
 }
 
@@ -239,6 +272,7 @@ export const useAppStore = create<AppStore>()(
         broadcastSkipProd: true,
         autoReconnect: true,
         autoRecord: false,
+        localShell: "",
       },
       lastSessionConnectionIds: [],
 
