@@ -551,11 +551,17 @@ export default function App() {
           e.preventDefault();
           setSearchOpen((v) => !v);
         }
-      } else if (e.key === "b") {
+      } else if (e.key === "b" || e.key === "B") {
         e.preventDefault();
-        // ⌘B esconde/mostra; ⌘⇧B recolhe para a faixa de ícones.
-        if (e.shiftKey) store.toggleSidebar();
-        else useAppStore.setState({ sidebarOpen: !store.sidebarOpen });
+        if (e.shiftKey) {
+          // ⌘⇧B esconde de vez, para quem quer a tela toda.
+          useAppStore.setState({ sidebarOpen: !store.sidebarOpen });
+        } else if (!store.sidebarOpen) {
+          useAppStore.setState({ sidebarOpen: true });
+        } else {
+          // ⌘B recolhe para a faixa de ícones — as conexões continuam à mão.
+          store.toggleSidebar();
+        }
       } else if ((e.key === "f" || e.key === "F") && e.shiftKey) {
         e.preventDefault();
         void setFocus(!useAppStore.getState().focusMode);
@@ -798,8 +804,8 @@ export default function App() {
               !sidebarOpen
                 ? "Mostrar barra lateral (⌘B)"
                 : sidebarRail
-                  ? "Expandir barra lateral (⌘⇧B)"
-                  : "Recolher para ícones (⌘⇧B)"
+                  ? "Expandir barra lateral (⌘B) — ⌘⇧B esconde"
+                  : "Recolher para ícones (⌘B) — ⌘⇧B esconde"
             }
             onClick={() => {
               const s = useAppStore.getState();

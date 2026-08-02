@@ -9,7 +9,7 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. Feito com **Taur
 - Edição em **painel lateral (Sheet)** com **preview ao vivo**: cor, ícone e tema aparecem na sidebar, nas abas e nos terminais abertos enquanto você escolhe; fechar sem salvar reverte.
 - **~150 ícones** de sistemas operacionais, clouds, containers, IaC, CI/CD, bancos, mensageria, monitoramento, rede/VPN, runtimes, storage e self-hosted — além de ícones genéricos de categoria (servidor, firewall, load balancer, VM…), todos na cor da conexão.
 - **Pastas** colapsáveis para organizar (arraste uma conexão para dentro de uma pasta), **tags** coloridas com filtro combinado e busca por texto livre.
-- Barra lateral **recolhível só com ícones** (⌘⇧B) com tooltip de nome e `usuário@host:porta`, ou escondida por completo (⌘B).
+- Barra lateral **recolhível só com ícones** (⌘B) com tooltip de nome e `usuário@host:porta`, ou escondida por completo (⌘⇧B).
 - Seção **Recentes** (atalho com as 5 últimas usadas) e destaque da conexão da aba ativa na lista.
 - **Importação do `~/.ssh/config`** (blocos `Host`, herança de `Host *`, `ProxyJump`), com pré-visualização e detecção de duplicatas.
 - Flag **produção**: confirmação extra ao conectar, badge PROD e faixa vermelha na sessão.
@@ -72,7 +72,7 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. Feito com **Taur
 | ⌘K / ⌘T | Paleta: conectar ou rodar snippet |
 | ⌘N | Nova conexão |
 | ⌘F | Buscar no terminal |
-| ⌘B / ⌘⇧B | Esconder barra lateral / recolher para ícones |
+| ⌘B / ⌘⇧B | Recolher barra lateral para ícones / esconder por completo |
 | ⌘⇧F | Focus mode (tela cheia) |
 | ⌘D / ⌘⇧D | Dividir painel (lado a lado / empilhado) |
 | ⌘⌥← → ↑ ↓ | Circular foco entre painéis |
