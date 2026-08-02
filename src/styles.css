@@ -328,6 +328,7 @@ textarea:focus {
 }
 
 .workarea {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -1273,9 +1274,18 @@ textarea:focus {
 }
 
 /* Broadcast ligado: contorno âmbar na área de trabalho + selo na toolbar.
-   O sinal precisa ser visível de canto de olho antes de digitar. */
-.workarea[data-broadcast="true"] {
-  box-shadow: 0 0 0 2px var(--warn) inset;
+   O sinal precisa ser visível de canto de olho antes de digitar.
+
+   Pseudo-elemento sobreposto em vez de `box-shadow: inset`: o canvas do xterm
+   preenche o painel até a borda à direita e embaixo e cobriria o sombreado
+   justamente nesses dois lados. */
+.workarea[data-broadcast="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--warn);
+  pointer-events: none;
+  z-index: 15;
 }
 
 .broadcast-badge {
