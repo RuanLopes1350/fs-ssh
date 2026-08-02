@@ -2,17 +2,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Tag {
-    pub id: String,
-    pub name: String,
-    pub color: String,
-    pub parent_id: Option<String>,
-    #[serde(default)]
-    pub sort: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Folder {
     #[serde(default)]
     pub id: String,
@@ -83,9 +72,6 @@ pub struct Connection {
     pub last_used_at: Option<String>,
     #[serde(default)]
     pub use_count: i64,
-    /// Ids das tags associadas — resolvido por join, não é coluna.
-    #[serde(default)]
-    pub tag_ids: Vec<String>,
 }
 
 fn default_port() -> u16 {

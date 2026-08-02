@@ -27,6 +27,7 @@ import { CommandPalette, type PaletteAction } from "./components/CommandPalette"
 import { AuthDialog, ConfirmDialog, HostKeyDialog, Spinner } from "./components/Dialogs";
 import { ConnIcon } from "./components/Icon";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { ConnectionSheet, EMPTY_CONNECTION } from "./connections/ConnectionSheet";
 import { ManagePanel } from "./connections/ManagePanel";
 import { DockerPanel } from "./docker/DockerPanel";
@@ -91,6 +92,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   /** Quando ligado, a paleta abre listando só snippets (botão da toolbar). */
   const [paletteSnippets, setPaletteSnippets] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [hostKey, setHostKey] = useState<HostKeyPrompt | null>(null);
   const [authPrompt, setAuthPrompt] = useState<AuthPrompt | null>(null);
@@ -487,6 +489,13 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey;
+      // Esc sai do focus mode: sem barra de abas visível, o botão de sair é a
+      // única saída — e teclado tem que bastar.
+      if (!meta && e.key === "Escape" && useAppStore.getState().focusMode) {
+        e.preventDefault();
+        void setFocus(false);
+        return;
+      }
       if (!meta) return;
       const store = useAppStore.getState();
 
@@ -531,6 +540,42 @@ export default function App() {
       if (e.key === "n") {
         e.preventDefault();
         setEditing({ ...EMPTY_CONNECTION });
+      } else if (e.key === "/" || e.key === "?") {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+      } else if (e.key === "l") {
+        // Foca a busca da barra lateral (abrindo-a se preciso) — dali as setas
+        // já navegam pela lista de conexões.
+        e.preventDefault();
+        if (!store.sidebarOpen || store.sidebarRail) {
+          useAppStore.setState({ sidebarOpen: true, sidebarRail: false });
+        }
+        window.setTimeout(() => {
+          document.querySelector<HTMLInputElement>("#sidebar-search")?.focus();
+        }, 30);
+      } else if (e.key === "r" && !e.shiftKey) {
+        const pane = activePaneOf(
+          store.tabs.find((t) => t.id === store.activeTabId),
+        );
+        if (pane && pane.status !== "connecting") {
+          e.preventDefault();
+          retry(pane);
+        }
+      } else if ((e.key === "r" || e.key === "R") && e.shiftKey) {
+        e.preventDefault();
+        toggleRecording();
+      } else if (e.key === "e") {
+        e.preventDefault();
+        store.togglePanel("sftp");
+      } else if ((e.key === "c" || e.key === "C") && e.shiftKey) {
+        e.preventDefault();
+        store.togglePanel("docker");
+      } else if ((e.key === "t" || e.key === "T") && e.shiftKey) {
+        e.preventDefault();
+        store.togglePanel("tunnels");
+      } else if ((e.key === "m" || e.key === "M") && e.shiftKey) {
+        e.preventDefault();
+        setManaging((v) => !v);
       } else if (e.key === "d" || e.key === "D") {
         // ⌘D divide lado a lado; ⌘⇧D divide empilhado (como no iTerm).
         e.preventDefault();
@@ -579,7 +624,7 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [closePane]);
+  }, [closePane, setFocus]);
 
   // A busca é do painel ativo; trocar de aba/painel fecha a barra para não
   // buscar "no terminal errado" sem perceber.
@@ -800,6 +845,7 @@ export default function App() {
               barra estar visível ou não. */}
           <button
             className="icon-btn tabbar__toggle"
+            aria-label="Alternar barra lateral"
             title={
               !sidebarOpen
                 ? "Mostrar barra lateral (⌘B)"
@@ -818,7 +864,7 @@ export default function App() {
 
           {/* Só as abas rolam; o botão de recolher e a barra de ações ficam
               fixos nas pontas. */}
-          <div className="tabbar__tabs">
+          <div className="tabbar__tabs" role="tablist" aria-label="Sessões abertas">
           {tabs.map((t) => {
             const s = tabSummary(t);
             return (
@@ -826,6 +872,9 @@ export default function App() {
                 key={t.id}
                 ref={t.id === activeTabId ? activeTabRef : undefined}
                 className="tab"
+                role="tab"
+                tabIndex={t.id === activeTabId ? 0 : -1}
+                aria-selected={t.id === activeTabId}
                 data-active={t.id === activeTabId}
                 style={{ borderTopColor: t.id === activeTabId ? s.color : "transparent" }}
                 onClick={() => useAppStore.getState().setActiveTab(t.id)}
@@ -852,6 +901,7 @@ export default function App() {
                 {s.isProduction && <span className="prod-badge">PROD</span>}
                 <span
                   className="tab__close"
+                  role="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     void closeTab(t.id);
@@ -868,6 +918,7 @@ export default function App() {
             {broadcast && <span className="broadcast-badge">BROADCAST</span>}
             <button
               className="icon-btn"
+              aria-label="Dividir painel (⌘D lado a lado, ⌘⇧D empilhado)"
               title="Dividir painel (⌘D lado a lado, ⌘⇧D empilhado)"
               disabled={!activePane}
               onClick={() => splitActive("row")}
@@ -876,6 +927,7 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              aria-label="Diminuir fonte (⌘−)"
               title="Diminuir fonte (⌘−)"
               onClick={() => useAppStore.getState().setFontSize(fontSize - 1)}
             >
@@ -883,6 +935,7 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              aria-label="Aumentar fonte (⌘+)"
               title="Aumentar fonte (⌘+)"
               onClick={() => useAppStore.getState().setFontSize(fontSize + 1)}
             >
@@ -890,6 +943,7 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              aria-label="Enviar o que eu digitar para todas as sessões abertas"
               data-active={broadcast}
               title="Enviar o que eu digitar para todas as sessões abertas"
               onClick={toggleBroadcast}
@@ -898,6 +952,7 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              aria-label="Snippets — comandos salvos, digitados na sessão ativa (⌘K)"
               disabled={!activePane?.sessionId}
               title="Snippets — comandos salvos, digitados na sessão ativa (⌘K)"
               onClick={() => {
@@ -909,6 +964,7 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              aria-label="Gravar a sessão"
               data-recording={!!activePane?.recording}
               disabled={!activePane?.sessionId}
               title={
@@ -922,6 +978,7 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              aria-label="Painel de arquivos (SFTP)"
               data-active={openPanel === "sftp"}
               disabled={isLocalPane || !activePane?.sessionId}
               title={
@@ -935,6 +992,7 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              aria-label="Painel de containers"
               data-active={openPanel === "docker"}
               disabled={!activePane?.sessionId}
               title={
@@ -948,6 +1006,7 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              aria-label="Painel de túneis"
               data-active={openPanel === "tunnels"}
               disabled={isLocalPane || !activePane?.sessionId}
               title={
@@ -961,6 +1020,7 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              aria-label="Focus mode — tela cheia só com o terminal (⌘⇧F)"
               data-active={focusMode}
               title="Focus mode — tela cheia só com o terminal (⌘⇧F)"
               onClick={() => void setFocus(!focusMode)}
@@ -969,6 +1029,7 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              aria-label="Configurações (⌘,)"
               title="Configurações (⌘,)"
               onClick={() => setSettingsOpen(true)}
             >
@@ -1036,6 +1097,7 @@ export default function App() {
         />
       )}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
       {paletteOpen && (
         <CommandPalette
           hasSession={!!activePane?.sessionId}

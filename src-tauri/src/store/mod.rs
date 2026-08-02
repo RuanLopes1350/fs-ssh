@@ -73,19 +73,12 @@ impl Db {
              FROM connections ORDER BY name COLLATE NOCASE",
         )?;
         let rows = stmt.query_map([], row_to_connection)?;
-        let mut out = Vec::new();
-        for r in rows {
-            let mut conn = r?;
-            conn.tag_ids = tag_ids_of(&c, &conn.id)?;
-            out.push(conn);
-        }
-        Ok(out)
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     pub fn get_connection(&self, id: &str) -> AppResult<Connection_> {
         let c = self.lock()?;
-        let mut conn = c
-            .query_row(
+        c.query_row(
                 "SELECT id, name, host, port, username, auth_method, identity_id, jump_host_id,
                         color, icon, theme_id, is_production, notes, created_at, last_used_at, use_count,
                         folder_id
@@ -93,10 +86,8 @@ impl Db {
                 params![id],
                 row_to_connection,
             )
-            .optional()?
-            .ok_or_else(|| AppError::msg(format!("conexão {id} não encontrada")))?;
-        conn.tag_ids = tag_ids_of(&c, &conn.id)?;
-        Ok(conn)
+        .optional()?
+        .ok_or_else(|| AppError::msg(format!("conexão {id} não encontrada")))
     }
 
     pub fn save_connection(&self, mut conn: Connection_) -> AppResult<Connection_> {
@@ -154,16 +145,6 @@ impl Db {
             )?;
         }
 
-        tx.execute(
-            "DELETE FROM connection_tags WHERE connection_id = ?1",
-            params![conn.id],
-        )?;
-        for tag in &conn.tag_ids {
-            tx.execute(
-                "INSERT OR IGNORE INTO connection_tags (connection_id, tag_id) VALUES (?1, ?2)",
-                params![conn.id, tag],
-            )?;
-        }
         tx.commit()?;
         drop(c);
         self.get_connection(&conn.id)
@@ -370,47 +351,6 @@ impl Db {
     pub fn delete_folder(&self, id: &str) -> AppResult<()> {
         self.lock()?
             .execute("DELETE FROM folders WHERE id = ?1", params![id])?;
-        Ok(())
-    }
-
-    // -------------------------------------------------------------------- tags
-
-    pub fn list_tags(&self) -> AppResult<Vec<Tag>> {
-        let c = self.lock()?;
-        let mut stmt =
-            c.prepare("SELECT id, name, color, parent_id, sort FROM tags ORDER BY sort, name")?;
-        let rows = stmt.query_map([], |r| {
-            Ok(Tag {
-                id: r.get(0)?,
-                name: r.get(1)?,
-                color: r.get(2)?,
-                parent_id: r.get(3)?,
-                sort: r.get(4)?,
-            })
-        })?;
-        Ok(rows.collect::<Result<_, _>>()?)
-    }
-
-    pub fn save_tag(&self, mut tag: Tag) -> AppResult<Tag> {
-        let c = self.lock()?;
-        if tag.id.is_empty() {
-            tag.id = Uuid::new_v4().to_string();
-            c.execute(
-                "INSERT INTO tags (id, name, color, parent_id, sort) VALUES (?1,?2,?3,?4,?5)",
-                params![tag.id, tag.name, tag.color, tag.parent_id, tag.sort],
-            )?;
-        } else {
-            c.execute(
-                "UPDATE tags SET name=?2, color=?3, parent_id=?4, sort=?5 WHERE id=?1",
-                params![tag.id, tag.name, tag.color, tag.parent_id, tag.sort],
-            )?;
-        }
-        Ok(tag)
-    }
-
-    pub fn delete_tag(&self, id: &str) -> AppResult<()> {
-        self.lock()?
-            .execute("DELETE FROM tags WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -669,7 +609,6 @@ fn row_to_connection(r: &Row) -> rusqlite::Result<Connection_> {
         last_used_at: r.get(14)?,
         use_count: r.get(15)?,
         folder_id: r.get(16)?,
-        tag_ids: Vec::new(),
     })
 }
 
@@ -685,12 +624,6 @@ fn row_to_forward(r: &Row) -> rusqlite::Result<PortForward> {
         remote_port: r.get::<_, i64>(7)? as u16,
         auto_start: r.get::<_, i64>(8)? != 0,
     })
-}
-
-fn tag_ids_of(c: &Connection, conn_id: &str) -> AppResult<Vec<String>> {
-    let mut stmt = c.prepare("SELECT tag_id FROM connection_tags WHERE connection_id = ?1")?;
-    let rows = stmt.query_map(params![conn_id], |r| r.get::<_, String>(0))?;
-    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 fn now() -> String {
@@ -740,7 +673,6 @@ mod tests {
             created_at: String::new(),
             last_used_at: None,
             use_count: 0,
-            tag_ids: vec![],
         }
     }
 
@@ -794,28 +726,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn tags_sobrevivem_a_atualizacao_da_conexao() {
-        let db = db();
-        let tag = db
-            .save_tag(Tag {
-                id: String::new(),
-                name: "prod".into(),
-                color: "#ef4444".into(),
-                parent_id: None,
-                sort: 0,
-            })
-            .unwrap();
-
-        let mut conn = connection(None);
-        conn.tag_ids = vec![tag.id.clone()];
-        let saved = db.save_connection(conn).unwrap();
-        assert_eq!(saved.tag_ids, vec![tag.id.clone()]);
-
-        let mut edited = saved.clone();
-        edited.name = "srv renomeado".into();
-        let updated = db.save_connection(edited).unwrap();
-        assert_eq!(updated.tag_ids, vec![tag.id]);
-        assert_eq!(updated.id, saved.id, "editar não pode criar outra conexão");
-    }
 }

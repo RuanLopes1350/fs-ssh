@@ -9,7 +9,6 @@ import type {
   Folder,
   Identity,
   Snippet,
-  Tag,
   Theme,
   TerminalPalette,
 } from "../lib/types";
@@ -90,7 +89,6 @@ export const LOCAL_CONNECTION: Connection = {
   createdAt: "",
   lastUsedAt: null,
   useCount: 0,
-  tagIds: [],
 };
 
 export const FALLBACK_PALETTE: TerminalPalette = {
@@ -187,7 +185,6 @@ function snapshotSession(tabs: Tab[]): string[] {
 interface AppStore {
   connections: Connection[];
   folders: Folder[];
-  tags: Tag[];
   themes: Theme[];
   identities: Identity[];
   snippets: Snippet[];
@@ -196,7 +193,6 @@ interface AppStore {
   activeTabId: string | null;
 
   search: string;
-  selectedTagIds: string[];
   fontSize: number;
   broadcast: boolean;
   sidebarOpen: boolean;
@@ -236,7 +232,6 @@ interface AppStore {
   setSplitRatio: (tabId: string, splitId: string, ratio: number) => void;
 
   setSearch: (s: string) => void;
-  toggleTag: (id: string) => void;
   setFontSize: (n: number) => void;
   /** Abre/fecha o painel lateral do painel ativo da aba ativa. */
   togglePanel: (kind: Exclude<PanelKind, null>) => void;
@@ -254,7 +249,6 @@ export const useAppStore = create<AppStore>()(
     (set, get) => ({
       connections: [],
       folders: [],
-      tags: [],
       themes: [],
       identities: [],
       snippets: [],
@@ -263,7 +257,6 @@ export const useAppStore = create<AppStore>()(
       activeTabId: null,
 
       search: "",
-      selectedTagIds: [],
       fontSize: 13,
       broadcast: false,
       sidebarOpen: true,
@@ -280,14 +273,13 @@ export const useAppStore = create<AppStore>()(
       lastSessionConnectionIds: [],
 
       loadAll: async () => {
-        const [connections, folders, tags, themes, snippets] = await Promise.all([
+        const [connections, folders, themes, snippets] = await Promise.all([
           api.connList(),
           api.folderList(),
-          api.tagList(),
           api.themeList(),
           api.snippetList(),
         ]);
-        set({ connections, folders, tags, themes, snippets });
+        set({ connections, folders, themes, snippets });
         // A varredura de chaves toca o disco e o agente; fica fora do Promise.all
         // para não atrasar a primeira pintura da lista de conexões.
         void get().reloadIdentities();
@@ -434,12 +426,6 @@ export const useAppStore = create<AppStore>()(
         })),
 
       setSearch: (search) => set({ search }),
-      toggleTag: (id) =>
-        set((s) => ({
-          selectedTagIds: s.selectedTagIds.includes(id)
-            ? s.selectedTagIds.filter((t) => t !== id)
-            : [...s.selectedTagIds, id],
-        })),
       setFontSize: (fontSize) => set({ fontSize: Math.min(24, Math.max(9, fontSize)) }),
       togglePanel: (kind) =>
         set((s) => ({
@@ -484,15 +470,10 @@ export const useAppStore = create<AppStore>()(
   ),
 );
 
-/** Filtro combinado da sidebar: texto livre + tags selecionadas. */
-export function filterConnections(
-  connections: Connection[],
-  search: string,
-  tagIds: string[],
-): Connection[] {
+/** Filtro da sidebar: busca por nome, host, usuário ou notas. */
+export function filterConnections(connections: Connection[], search: string): Connection[] {
   const q = search.trim().toLowerCase();
   return connections.filter((c) => {
-    if (tagIds.length && !tagIds.every((t) => c.tagIds.includes(t))) return false;
     if (!q) return true;
     return (
       c.name.toLowerCase().includes(q) ||

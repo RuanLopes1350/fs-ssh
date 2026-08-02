@@ -65,7 +65,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // conexões, tags, temas, snippets
+            // conexões, pastas, temas, snippets
             cmd::conn::conn_list,
             cmd::conn::conn_get,
             cmd::conn::conn_save,
@@ -74,9 +74,6 @@ pub fn run() {
             cmd::conn::folder_list,
             cmd::conn::folder_save,
             cmd::conn::folder_delete,
-            cmd::conn::tag_list,
-            cmd::conn::tag_save,
-            cmd::conn::tag_delete,
             cmd::conn::theme_list,
             cmd::conn::theme_save,
             cmd::conn::theme_delete,

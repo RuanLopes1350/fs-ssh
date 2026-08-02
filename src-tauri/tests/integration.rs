@@ -44,7 +44,6 @@ fn test_conn() -> Connection {
         created_at: String::new(),
         last_used_at: None,
         use_count: 0,
-        tag_ids: vec![],
     }
 }
 

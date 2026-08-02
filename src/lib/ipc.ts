@@ -18,7 +18,6 @@ import type {
   SessionInfo,
   Snippet,
   SshConfigHost,
-  Tag,
   Theme,
 } from "./types";
 
@@ -55,10 +54,6 @@ export const api = {
   folderList: () => invoke<Folder[]>("folder_list"),
   folderSave: (folder: Partial<Folder>) => invoke<Folder>("folder_save", { folder }),
   folderDelete: (id: string) => invoke<void>("folder_delete", { id }),
-
-  tagList: () => invoke<Tag[]>("tag_list"),
-  tagSave: (tag: Partial<Tag>) => invoke<Tag>("tag_save", { tag }),
-  tagDelete: (id: string) => invoke<void>("tag_delete", { id }),
 
   themeList: () => invoke<Theme[]>("theme_list"),
   themeSave: (theme: Partial<Theme>) => invoke<Theme>("theme_save", { theme }),

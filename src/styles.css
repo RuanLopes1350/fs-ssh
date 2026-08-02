@@ -1386,6 +1386,111 @@ textarea:focus {
   flex: none;
 }
 
+/* ------------------------------------------------------- acessibilidade */
+
+/* Foco sempre visível para quem navega por teclado — o padrão do WebKit some
+   sobre fundos escuros. `:focus-visible` não aparece em clique de mouse. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+.conn:focus-visible,
+.rail__item:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Respeita "reduzir movimento" do sistema: animações viram trocas diretas. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Lista de atalhos (⌘/). */
+.shortcut-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.shortcut-grid__title {
+  margin: 0 0 6px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.shortcut-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.shortcut-list__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.shortcut-list__row dt {
+  flex: none;
+  min-width: 92px;
+}
+
+.shortcut-list__row dd {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+/* --------------------------------------------------------- responsividade */
+
+/* Janela estreita: a barra lateral encolhe antes de o terminal sofrer. */
+@media (max-width: 1100px) {
+  :root {
+    --sidebar-w: 216px;
+  }
+}
+
+/* Painéis laterais não podem espremer o terminal em telas pequenas. */
+@media (max-width: 1200px) {
+  .sftp {
+    width: 42%;
+    min-width: 320px;
+  }
+
+  .docker {
+    width: 32%;
+    min-width: 260px;
+  }
+}
+
+/* Abaixo disso o dual-pane do SFTP vira uma coluna só — dois painéis de 160px
+   não servem para ninguém. */
+@media (max-width: 1000px) {
+  .sftp__panes {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+
+  .pane {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tab {
+    max-width: 150px;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 9px;
   height: 9px;

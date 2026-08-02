@@ -49,21 +49,6 @@ pub fn folder_delete(state: State<'_, AppState>, id: String) -> AppResult<()> {
 }
 
 #[tauri::command]
-pub fn tag_list(state: State<'_, AppState>) -> AppResult<Vec<Tag>> {
-    state.db.list_tags()
-}
-
-#[tauri::command]
-pub fn tag_save(state: State<'_, AppState>, tag: Tag) -> AppResult<Tag> {
-    state.db.save_tag(tag)
-}
-
-#[tauri::command]
-pub fn tag_delete(state: State<'_, AppState>, id: String) -> AppResult<()> {
-    state.db.delete_tag(&id)
-}
-
-#[tauri::command]
 pub fn theme_list(state: State<'_, AppState>) -> AppResult<Vec<Theme>> {
     state.db.list_themes()
 }
@@ -171,7 +156,6 @@ pub fn sshconfig_import(
             created_at: String::new(),
             last_used_at: None,
             use_count: 0,
-            tag_ids: Vec::new(),
         })?;
         imported += 1;
     }

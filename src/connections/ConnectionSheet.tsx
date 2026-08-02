@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Search, Trash2 } from "lucide-react";
+import { Search, Trash2 } from "lucide-react";
 
 import { ConfirmDialog } from "../components/Dialogs";
 import { ConnIcon, ICON_GROUPS, iconLabel } from "../components/Icon";
@@ -53,7 +53,6 @@ export const EMPTY_CONNECTION: Connection = {
   createdAt: "",
   lastUsedAt: null,
   useCount: 0,
-  tagIds: [],
 };
 
 /** Valor-sentinela do Radix Select: ele não aceita item com value "". */
@@ -81,7 +80,6 @@ export function ConnectionSheet({
 
   const identities = useAppStore((s) => s.identities);
   const themes = useAppStore((s) => s.themes);
-  const tags = useAppStore((s) => s.tags);
   const folders = useAppStore((s) => s.folders);
   const connections = useAppStore((s) => s.connections);
   const reload = useAppStore((s) => s.reloadConnections);
@@ -291,36 +289,6 @@ export function ConnectionSheet({
               </Select>
             </Field>
           </div>
-
-          {tags.length > 0 && (
-            <Field label="Tags">
-              <div className="flex flex-wrap gap-1">
-                {tags.map((t) => {
-                  const active = conn.tagIds.includes(t.id);
-                  return (
-                    <button
-                      key={t.id}
-                      className="tag"
-                      data-active={active}
-                      style={active ? { color: t.color } : undefined}
-                      onClick={() =>
-                        set(
-                          "tagIds",
-                          active
-                            ? conn.tagIds.filter((x) => x !== t.id)
-                            : [...conn.tagIds, t.id],
-                        )
-                      }
-                    >
-                      <span className="tag__dot" style={{ background: t.color }} />
-                      {t.name}
-                      {active && <Check size={11} />}
-                    </button>
-                  );
-                })}
-              </div>
-            </Field>
-          )}
 
           <Field label="Cor">
             <div className="flex flex-wrap items-center gap-1.5">

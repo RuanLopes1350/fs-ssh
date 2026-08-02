@@ -126,6 +126,12 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX idx_logs_ts ON app_logs(ts DESC);
     CREATE INDEX idx_logs_conn ON app_logs(connection_id);
     "#,
+    // v5 — tags removidas: as pastas dão conta da organização, e manter dois
+    // eixos de agrupamento só dividia a atenção de quem organiza os servidores.
+    r#"
+    DROP TABLE IF EXISTS connection_tags;
+    DROP TABLE IF EXISTS tags;
+    "#,
 ];
 
 pub fn migrate(conn: &Connection) -> AppResult<()> {

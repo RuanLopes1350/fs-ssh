@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, KeyRound, ShieldQuestion } from "lucide-react";
 
 import type { AuthPrompt, HostKeyPrompt } from "../lib/types";
@@ -21,17 +21,55 @@ export function Modal({
   footer: React.ReactNode;
   onClose: () => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      // Prende o Tab dentro do diálogo: sem isso o foco escapa para o terminal
+      // atrás, que continua recebendo o que for digitado.
+      if (e.key !== "Tab" || !ref.current) return;
+      const focusables = ref.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && (active === first || !ref.current.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Devolve o foco a quem abriu o diálogo — senão ele volta para o `body` e o
+  // teclado fica sem contexto.
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    const firstField = ref.current?.querySelector<HTMLElement>(
+      'input:not([type="hidden"]), textarea, select, button',
+    );
+    firstField?.focus();
+    return () => opener?.focus?.();
+  }, []);
+
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className={[
           "modal",
           wide ? "modal--wide" : "",
@@ -40,7 +78,7 @@ export function Modal({
           .filter(Boolean)
           .join(" ")}
       >
-        <div className="modal__head">
+        <div className="modal__head" id={titleId}>
           {icon}
           {title}
         </div>

@@ -1,11 +1,3 @@
-export interface Tag {
-  id: string;
-  name: string;
-  color: string;
-  parentId: string | null;
-  sort: number;
-}
-
 export interface Folder {
   id: string;
   name: string;
@@ -85,7 +77,6 @@ export interface Connection {
   createdAt: string;
   lastUsedAt: string | null;
   useCount: number;
-  tagIds: string[];
 }
 
 export interface SessionInfo {

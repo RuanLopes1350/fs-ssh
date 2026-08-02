@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -46,15 +46,12 @@ interface SidebarProps {
 export function Sidebar(props: SidebarProps) {
   const connections = useAppStore((s) => s.connections);
   const folders = useAppStore((s) => s.folders);
-  const tags = useAppStore((s) => s.tags);
   const search = useAppStore((s) => s.search);
-  const selectedTagIds = useAppStore((s) => s.selectedTagIds);
   const collapsedFolders = useAppStore((s) => s.collapsedFolders);
   const tabs = useAppStore((s) => s.tabs);
   const activeTabId = useAppStore((s) => s.activeTabId);
   const rail = useAppStore((s) => s.sidebarRail);
   const setSearch = useAppStore((s) => s.setSearch);
-  const toggleTag = useAppStore((s) => s.toggleTag);
   const toggleFolderCollapsed = useAppStore((s) => s.toggleFolderCollapsed);
   const reloadFolders = useAppStore((s) => s.reloadFolders);
   const reloadConnections = useAppStore((s) => s.reloadConnections);
@@ -77,10 +74,10 @@ export function Sidebar(props: SidebarProps) {
     activePaneOf(tabs.find((t) => t.id === activeTabId))?.connectionId ?? null;
 
   const visible = useMemo(
-    () => filterConnections(connections, search, selectedTagIds),
-    [connections, search, selectedTagIds],
+    () => filterConnections(connections, search),
+    [connections, search],
   );
-  const filtering = search.trim().length > 0 || selectedTagIds.length > 0;
+  const filtering = search.trim().length > 0;
   const collapsed = (id: string) => collapsedFolders.includes(id) && !filtering;
 
   const byFolder = useMemo(() => {
@@ -95,6 +92,38 @@ export function Sidebar(props: SidebarProps) {
   }, [visible]);
 
   const rootConns = byFolder.get(null) ?? [];
+
+  const listRef = useRef<HTMLDivElement>(null);
+
+  /** Move o foco entre as linhas da lista (índice negativo conta do fim). */
+  const focusRow = (index: number) => {
+    const rows = listRef.current?.querySelectorAll<HTMLElement>("[data-conn-row]");
+    if (!rows?.length) return;
+    const i = index < 0 ? rows.length + index : Math.min(index, rows.length - 1);
+    rows[Math.max(0, i)]?.focus();
+  };
+
+  /** ↑ ↓ Home End navegam; da primeira linha, ↑ volta para a busca. */
+  const onListKeyDown = (e: React.KeyboardEvent) => {
+    const rows = Array.from(
+      listRef.current?.querySelectorAll<HTMLElement>("[data-conn-row]") ?? [],
+    );
+    const current = rows.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      focusRow(current + 1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (current <= 0) document.querySelector<HTMLInputElement>("#sidebar-search")?.focus();
+      else focusRow(current - 1);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      focusRow(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      focusRow(-1);
+    }
+  };
 
   const openMenu = (conn: Connection) => (e: React.MouseEvent) => {
     e.preventDefault();
@@ -359,38 +388,39 @@ export function Sidebar(props: SidebarProps) {
             }}
           />
           <input
-            placeholder="Buscar servidor…"
+            id="sidebar-search"
+            type="search"
+            aria-label="Buscar servidor"
+            placeholder="Buscar servidor… (⌘L)"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              // Da busca, ↓ entra na lista; ↵ conecta ao primeiro resultado.
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                focusRow(0);
+              } else if (e.key === "Enter" && visible.length) {
+                e.preventDefault();
+                props.onConnect(visible[0]);
+              }
+            }}
             style={{ paddingLeft: 26 }}
           />
         </div>
       </div>
 
-      {tags.length > 0 && (
-        <div className="tags">
-          {tags.map((t) => {
-            const active = selectedTagIds.includes(t.id);
-            return (
-              <button
-                key={t.id}
-                className="tag"
-                data-active={active}
-                style={active ? { color: t.color } : undefined}
-                onClick={() => toggleTag(t.id)}
-              >
-                <span className="tag__dot" style={{ background: t.color }} />
-                {t.name}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="sidebar__list">
+      <div
+        className="sidebar__list"
+        ref={listRef}
+        role="list"
+        aria-label="Conexões"
+        onKeyDown={onListKeyDown}
+      >
         {/* Fixo no topo: o shell da própria máquina, sempre a um clique. */}
         <button
           className="conn"
+          data-conn-row
+          role="listitem"
           data-active={activeConnectionId === LOCAL_CONNECTION.id}
           onClick={() => props.onConnect(LOCAL_CONNECTION)}
           title="Abrir um shell nesta máquina"
@@ -552,6 +582,11 @@ function ConnRow({
       className="conn"
       role="button"
       tabIndex={0}
+      data-conn-row
+      aria-label={`${conn.name}, ${conn.username}@${conn.host}:${conn.port}${
+        conn.isProduction ? ", produção" : ""
+      }`}
+      aria-current={active ? "true" : undefined}
       data-active={active}
       data-dragging={dragging}
       draggable

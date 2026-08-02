@@ -11,7 +11,6 @@ import {
   RefreshCw,
   ServerCog,
   ShieldCheck,
-  Tag as TagIcon,
   TerminalSquare,
   Trash2,
   Upload,
@@ -37,7 +36,6 @@ import type {
 type TabKey =
   | "keys"
   | "snippets"
-  | "tags"
   | "themes"
   | "hosts"
   | "recordings"
@@ -74,7 +72,6 @@ export function ManagePanel({
           [
             ["keys", "Chaves"],
             ["snippets", "Snippets"],
-            ["tags", "Tags"],
             ["themes", "Temas"],
             ["hosts", "Hosts conhecidos"],
             ["recordings", "Gravações"],
@@ -106,7 +103,6 @@ export function ManagePanel({
         />
       )}
       {tab === "snippets" && <SnippetsTab />}
-      {tab === "tags" && <TagsTab />}
       {tab === "themes" && <ThemesTab />}
       {tab === "hosts" && <HostsTab />}
       {tab === "recordings" && <RecordingsTab />}
@@ -493,71 +489,6 @@ function SnippetsTab() {
 }
 
 // --------------------------------------------------------------------- tags
-
-const TAG_COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6", "#3b82f6", "#a855f7", "#64748b"];
-
-function TagsTab() {
-  const tags = useAppStore((s) => s.tags);
-  const loadAll = useAppStore((s) => s.loadAll);
-  const [name, setName] = useState("");
-  const [color, setColor] = useState(TAG_COLORS[5]);
-
-  const add = async () => {
-    if (!name.trim()) return;
-    await api.tagSave({ id: "", name: name.trim(), color, parentId: null, sort: 0 });
-    setName("");
-    await loadAll();
-  };
-
-  return (
-    <>
-      {tags.map((t) => (
-        <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="tag__dot" style={{ background: t.color }} />
-          <span style={{ flex: 1 }}>{t.name}</span>
-          <button
-            className="icon-btn"
-            onClick={async () => {
-              await api.tagDelete(t.id);
-              await loadAll();
-            }}
-          >
-            <Trash2 size={13} color="var(--danger)" />
-          </button>
-        </div>
-      ))}
-
-      <div className="row" style={{ alignItems: "flex-end" }}>
-        <div className="field">
-          <label>Nova tag</label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && void add()}
-            placeholder="produção, cliente-x, k8s…"
-          />
-        </div>
-        <div className="field" style={{ flex: "none" }}>
-          <label>Cor</label>
-          <div className="swatches">
-            {TAG_COLORS.map((c) => (
-              <button
-                key={c}
-                className="swatch"
-                data-active={color === c}
-                style={{ background: c }}
-                onClick={() => setColor(c)}
-              />
-            ))}
-          </div>
-        </div>
-        <button className="btn btn--primary" style={{ flex: "none" }} onClick={add}>
-          <TagIcon size={13} />
-        </button>
-      </div>
-    </>
-  );
-}
 
 // -------------------------------------------------------------------- temas
 
