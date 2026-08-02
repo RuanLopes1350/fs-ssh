@@ -6,8 +6,30 @@
  * componentes. Importando só tema + utilitários, as classes ficam disponíveis
  * para os componentes shadcn/ui novos sem tocar no que já funciona.
  */
+/* A ordem das camadas é declarada antes dos imports: `base` precisa vir depois
+   de `theme` e ANTES de `utilities`, senão o reset abaixo venceria os próprios
+   utilitários de borda. */
+@layer theme, base, utilities;
+
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
+
+@layer base {
+  /*
+   * Único pedaço do preflight que os componentes shadcn precisam.
+   *
+   * O utilitário `border` só define a espessura; o estilo padrão de borda no CSS
+   * é `none`, então sem isto nenhum Select, Sheet, Tooltip ou Switch desenhava
+   * a borda — o campo aparecia "flutuando" sem contorno. Fica na camada `base`
+   * para o `styles.css` (sem camada) e os utilitários continuarem por cima.
+   */
+  *,
+  ::before,
+  ::after {
+    border-style: solid;
+    border-width: 0;
+  }
+}
 
 /* As cores espelham as variáveis de `styles.css` para os dois mundos casarem. */
 @theme {

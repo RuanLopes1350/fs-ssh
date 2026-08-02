@@ -306,8 +306,11 @@ export function ConnectionSheet({
               <input
                 type="color"
                 value={conn.color}
+                aria-label="Cor personalizada"
                 onChange={(e) => set("color", e.target.value)}
-                className="h-6 w-8 cursor-pointer border-0 bg-transparent p-0"
+                // Inline porque `styles.css` (fora de camada) vence os
+                // utilitários e imporia `width: 100%` a todo input.
+                style={{ width: 34, height: 24, padding: 0, border: "none", cursor: "pointer" }}
               />
             </div>
           </Field>
