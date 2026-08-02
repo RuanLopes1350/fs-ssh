@@ -19,12 +19,15 @@ export type PaletteAction =
 export function CommandPalette({
   hasSession,
   canSplit,
+  only,
   onRun,
   onClose,
 }: {
   hasSession: boolean;
   /** Há uma aba ativa que pode receber um split. */
   canSplit: boolean;
+  /** Restringe a paleta a um tipo (o botão de snippets abre assim). */
+  only?: "snippets";
   onRun: (action: PaletteAction, split: boolean) => void;
   onClose: () => void;
 }) {
@@ -40,20 +43,23 @@ export function CommandPalette({
     const query = q.trim().toLowerCase();
     const match = (s: string) => s.toLowerCase().includes(query);
 
-    const conns: PaletteAction[] = connections
-      .filter((c) => !query || match(c.name) || match(c.host) || match(c.username))
-      .slice(0, 20)
-      .map((connection) => ({ type: "connect", connection }));
+    const conns: PaletteAction[] =
+      only === "snippets"
+        ? []
+        : connections
+            .filter((c) => !query || match(c.name) || match(c.host) || match(c.username))
+            .slice(0, 20)
+            .map((connection) => ({ type: "connect", connection }));
 
     const snips: PaletteAction[] = hasSession
       ? snippets
           .filter((s) => !query || match(s.name) || match(s.body))
-          .slice(0, 10)
+          .slice(0, only === "snippets" ? 50 : 10)
           .map((snippet) => ({ type: "snippet", snippet }))
       : [];
 
     return [...conns, ...snips];
-  }, [q, connections, snippets, hasSession]);
+  }, [q, connections, snippets, hasSession, only]);
 
   useEffect(() => setIndex(0), [q]);
 
@@ -84,7 +90,11 @@ export function CommandPalette({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Conectar a… ou rodar um snippet"
+          placeholder={
+            only === "snippets"
+              ? "Rodar um snippet no terminal ativo…"
+              : "Conectar a… ou rodar um snippet"
+          }
         />
         <div className="palette__list">
           {items.map((item, i) => (
@@ -121,7 +131,12 @@ export function CommandPalette({
           ))}
           {items.length === 0 && (
             <div className="palette__item muted">
-              <Server size={15} /> Nada encontrado
+              <Server size={15} />
+              {only === "snippets" && !hasSession
+                ? "Abra uma sessão para rodar snippets"
+                : only === "snippets"
+                  ? "Nenhum snippet — crie em ⚙ → Snippets"
+                  : "Nada encontrado"}
             </div>
           )}
         </div>

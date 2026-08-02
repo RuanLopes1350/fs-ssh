@@ -18,6 +18,7 @@ import {
   Settings as SettingsIcon,
   SquareSplitHorizontal,
   Terminal as TerminalIcon,
+  TerminalSquare,
   TriangleAlert,
   X,
 } from "lucide-react";
@@ -90,6 +91,8 @@ export default function App() {
   const [managing, setManaging] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /** Quando ligado, a paleta abre listando só snippets (botão da toolbar). */
+  const [paletteSnippets, setPaletteSnippets] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [hostKey, setHostKey] = useState<HostKeyPrompt | null>(null);
   const [authPrompt, setAuthPrompt] = useState<AuthPrompt | null>(null);
@@ -428,6 +431,7 @@ export default function App() {
 
   const runPalette = (action: PaletteAction, split: boolean) => {
     setPaletteOpen(false);
+    setPaletteSnippets(false);
     if (action.type === "connect") {
       if (split) connectInSplit(action.connection, "row");
       else requestConnect(action.connection);
@@ -609,6 +613,7 @@ export default function App() {
         <div
           className="pane-slot"
           data-focused={multi && focused}
+          style={{ "--pane-accent": pane.color } as React.CSSProperties}
           onMouseDownCapture={() => {
             if (!focused) useAppStore.getState().setActivePane(tab.id, pane.id);
           }}
@@ -627,6 +632,14 @@ export default function App() {
       <div
         className="pane-slot"
         data-focused={multi && focused}
+        // O anel de foco herda a identidade da conexão (vermelho em produção),
+        // não o azul do sistema: com dois painéis lado a lado é o que diz de
+        // qual servidor é a metade em foco.
+        style={
+          {
+            "--pane-accent": pane.isProduction ? "var(--danger)" : pane.color,
+          } as React.CSSProperties
+        }
         onMouseDownCapture={() => {
           if (!focused) useAppStore.getState().setActivePane(tab.id, pane.id);
         }}
@@ -861,6 +874,17 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              disabled={!activePane?.sessionId}
+              title="Snippets — comandos salvos, digitados na sessão ativa (⌘K)"
+              onClick={() => {
+                setPaletteSnippets(true);
+                setPaletteOpen(true);
+              }}
+            >
+              <TerminalSquare size={14} />
+            </button>
+            <button
+              className="icon-btn"
               data-recording={!!activePane?.recording}
               disabled={!activePane?.sessionId}
               title={
@@ -973,8 +997,12 @@ export default function App() {
         <CommandPalette
           hasSession={!!activePane?.sessionId}
           canSplit={!!activeTab}
+          only={paletteSnippets ? "snippets" : undefined}
           onRun={runPalette}
-          onClose={() => setPaletteOpen(false)}
+          onClose={() => {
+            setPaletteOpen(false);
+            setPaletteSnippets(false);
+          }}
         />
       )}
 

@@ -935,7 +935,8 @@ textarea:focus {
   content: "";
   position: absolute;
   inset: 0;
-  border: 1px solid var(--accent);
+  /* `--pane-accent` vem inline com a cor da conexão (ou vermelho em produção). */
+  border: 1px solid var(--pane-accent, var(--accent));
   border-radius: 2px;
   pointer-events: none;
   z-index: 5;
