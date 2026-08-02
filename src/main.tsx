@@ -1,9 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 
-import "@xterm/xterm/css/xterm.css";
+// Uma entrada só: `tailwind.css` importa o CSS do xterm e o do app já dentro
+// das camadas certas (veja o comentário lá).
 import "./tailwind.css";
-import "./styles.css";
 import App from "./App";
 
 /**
