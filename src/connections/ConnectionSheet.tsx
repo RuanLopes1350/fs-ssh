@@ -22,7 +22,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "../components/ui/sheet";
-import { Switch } from "../components/ui/switch";
 import { api } from "../lib/ipc";
 import { terminals } from "../terminal/session";
 import { FALLBACK_PALETTE, useAppStore } from "../store/useAppStore";
@@ -318,10 +317,13 @@ export function ConnectionSheet({
           <IconPicker value={conn.icon} onChange={(v) => set("icon", v)} />
 
           <label className="flex cursor-pointer items-start gap-2.5">
-            <Switch
+            <input
+              type="checkbox"
               checked={conn.isProduction}
-              onCheckedChange={(v) => set("isProduction", v)}
-              className="mt-0.5"
+              onChange={(e) => set("isProduction", e.target.checked)}
+              // Caixa de seleção, como no resto dos formulários do app: o
+              // switch sugeria um efeito imediato, e isto só vale ao salvar.
+              style={{ width: "auto", marginTop: 3 }}
             />
             <span className="min-w-0">
               <span className="block text-[13px]">Servidor de produção</span>
