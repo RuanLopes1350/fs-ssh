@@ -294,7 +294,7 @@ export function Sidebar(props: SidebarProps) {
               style={{ color: LOCAL_CONNECTION.color }}
               onClick={() => props.onConnect(LOCAL_CONNECTION)}
             >
-              <ConnIcon name={LOCAL_CONNECTION.icon} size={18} color={LOCAL_CONNECTION.color} />
+              <ConnIcon name={LOCAL_CONNECTION.icon} size={16} color={LOCAL_CONNECTION.color} />
             </button>
           </Tooltip>
           {railList.map((c) => (
@@ -317,7 +317,7 @@ export function Sidebar(props: SidebarProps) {
                 onClick={() => props.onConnect(c)}
                 onContextMenu={openMenu(c)}
               >
-                <ConnIcon name={c.icon} size={18} color={c.color} />
+                <ConnIcon name={c.icon} size={16} color={c.color} />
                 {c.isProduction && <span className="rail__prod" />}
               </button>
             </Tooltip>
