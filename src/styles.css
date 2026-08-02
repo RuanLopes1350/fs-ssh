@@ -241,13 +241,43 @@ textarea:focus {
 .tabbar {
   display: flex;
   align-items: stretch;
-  gap: 1px;
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border);
   height: 38px;
   padding-left: 6px;
-  overflow-x: auto;
+  overflow: hidden;
   flex: none;
+}
+
+/* A rolagem é só das abas: as ações da direita (dividir, containers, ajustes)
+   sumiam junto quando havia abas demais. A barra fica fina e no rodapé da
+   faixa, sem espremer o conteúdo das abas. */
+.tabbar__tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.tabbar__tabs::-webkit-scrollbar {
+  height: 5px;
+}
+
+.tabbar__tabs::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+
+.tabbar__tabs::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
+
+.tabbar__tabs::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .tab {
@@ -256,6 +286,7 @@ textarea:focus {
   gap: 7px;
   padding: 0 10px;
   max-width: 220px;
+  flex: none;
   border-top: 2px solid transparent;
   color: var(--text-dim);
   white-space: nowrap;
@@ -284,12 +315,13 @@ textarea:focus {
 }
 
 .toolbar {
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 0 8px;
   flex: none;
+  background: var(--bg-raised);
+  border-left: 1px solid var(--border);
 }
 
 .icon-btn {

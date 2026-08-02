@@ -104,6 +104,7 @@ export default function App() {
   const pending = useRef<Pending | null>(null);
   const placement = useRef<Placement | null>(null);
   const reconnectTimers = useRef(new Map<string, number>());
+  const activeTabRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void (async () => {
@@ -579,6 +580,12 @@ export default function App() {
   // buscar "no terminal errado" sem perceber.
   useEffect(() => setSearchOpen(false), [activeTabId, activeTab?.activePaneId]);
 
+  // Com muitas abas a ativa pode estar fora da área visível — trocar por ⌘1-9
+  // ou ⌘⇧[] traria o terminal sem mostrar de qual aba é.
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [activeTabId]);
+
   // Zoom aplicado a todos os terminais abertos.
   useEffect(() => {
     terminals.forEach((t) => t.setFontSize(fontSize));
@@ -804,11 +811,15 @@ export default function App() {
             <PanelLeft size={14} />
           </button>
 
+          {/* Só as abas rolam; o botão de recolher e a barra de ações ficam
+              fixos nas pontas. */}
+          <div className="tabbar__tabs">
           {tabs.map((t) => {
             const s = tabSummary(t);
             return (
               <div
                 key={t.id}
+                ref={t.id === activeTabId ? activeTabRef : undefined}
                 className="tab"
                 data-active={t.id === activeTabId}
                 style={{ borderTopColor: t.id === activeTabId ? s.color : "transparent" }}
@@ -846,6 +857,7 @@ export default function App() {
               </div>
             );
           })}
+          </div>
 
           <div className="toolbar">
             {broadcast && <span className="broadcast-badge">BROADCAST</span>}
