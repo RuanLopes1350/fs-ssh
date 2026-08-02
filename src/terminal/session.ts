@@ -90,6 +90,19 @@ export class TerminalSession {
     this.info = info;
     this.closed = false;
 
+    // Entre pedir a conexão e o handshake terminar, o terminal já foi montado
+    // e medido — o PTY foi aberto com o tamanho de antes (tipicamente 80x24) e
+    // o `fit` daquele intervalo não tinha `info` para avisar o servidor. Sem
+    // reenviar aqui, um TUI (vim, htop) desenha numa janela 80x24 dentro de um
+    // painel grande.
+    const size = this.currentSize();
+    if (size.cols !== cols || size.rows !== rows) {
+      this.lastSize = size;
+      void api.sshResize(info.sessionId, size.cols, size.rows).catch(() => {});
+    }
+    // Remede depois do layout assentar (a aba pode ter acabado de aparecer).
+    this.fitSoon();
+
     if (!this.inputWired) {
       this.inputWired = true;
 
@@ -195,9 +208,12 @@ export class TerminalSession {
       }
       const { cols, rows } = this.currentSize();
       if (cols < 8 || rows < 3) return;
-      if (cols === this.lastSize.cols && rows === this.lastSize.rows) return;
-      this.lastSize = { cols, rows };
+      const unchanged = cols === this.lastSize.cols && rows === this.lastSize.rows;
+      // Só registra como "já enviado" quando havia sessão para receber: medir
+      // antes de conectar não pode marcar o tamanho como sincronizado.
       if (this.info && !this.closed) {
+        if (unchanged) return;
+        this.lastSize = { cols, rows };
         void api.sshResize(this.info.sessionId, cols, rows).catch(() => {});
       }
     }, 80);
