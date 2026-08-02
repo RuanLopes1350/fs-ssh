@@ -268,10 +268,32 @@ textarea:focus {
   color: var(--text);
 }
 
+/* O ✕ não participa do arrasto: cursor de seta e área de clique própria, senão
+   a mão de "arrastar aba" cobre o alvo e fechar vira sorte. */
 .tab__close {
   opacity: 0;
   color: var(--text-faint);
   display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: -4px;
+  border-radius: 4px;
+  flex: none;
+  cursor: default;
+}
+
+.tab__close:hover,
+.tab__close:active {
+  cursor: default;
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* Na aba ativa o ✕ fica sempre visível — é onde se fecha com mais frequência. */
+.tab[data-active="true"] .tab__close {
+  opacity: 0.7;
 }
 
 .tab:hover .tab__close {
