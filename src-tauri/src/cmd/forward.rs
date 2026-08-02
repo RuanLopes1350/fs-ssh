@@ -31,7 +31,27 @@ pub async fn forward_start(
 ) -> AppResult<()> {
     let forward = state.db.get_forward(&forward_id)?;
     let handle = state.sessions.get(&session_id).await?;
-    handle.start_forward(&forward).await
+    let result = handle.start_forward(&forward).await;
+
+    let conn = state.db.get_connection(&handle.info.connection_id).ok();
+    let name = conn.as_ref().map(|c| c.name.clone()).unwrap_or_default();
+    match &result {
+        Ok(()) => state.db.log_event(
+            "info",
+            "tunnel",
+            Some(&handle.info.connection_id),
+            &name,
+            &format!("túnel {} ligado ({})", describe(&forward), forward.kind),
+        ),
+        Err(e) => state.db.log_event(
+            "error",
+            "tunnel",
+            Some(&handle.info.connection_id),
+            &name,
+            &format!("falha ao ligar o túnel {}: {e}", describe(&forward)),
+        ),
+    }
+    result
 }
 
 #[tauri::command]
@@ -40,12 +60,24 @@ pub async fn forward_stop(
     session_id: String,
     forward_id: String,
 ) -> AppResult<()> {
-    state
-        .sessions
-        .get(&session_id)
-        .await?
-        .stop_forward(&forward_id)
-        .await
+    let handle = state.sessions.get(&session_id).await?;
+    handle.stop_forward(&forward_id).await?;
+
+    if let Ok(f) = state.db.get_forward(&forward_id) {
+        let name = state
+            .db
+            .get_connection(&handle.info.connection_id)
+            .map(|c| c.name)
+            .unwrap_or_default();
+        state.db.log_event(
+            "info",
+            "tunnel",
+            Some(&handle.info.connection_id),
+            &name,
+            &format!("túnel {} desligado", describe(&f)),
+        );
+    }
+    Ok(())
 }
 
 /// Ids dos túneis ativos nesta sessão.

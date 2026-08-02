@@ -11,6 +11,8 @@ import type {
   Identity,
   KnownHost,
   LocalEntry,
+  LogEntry,
+  LogQuery,
   Progress,
   RemoteEntry,
   SessionInfo,
@@ -123,6 +125,9 @@ export const api = {
   recordingRead: (path: string) => invoke<string>("recording_read", { path }),
   recordingDelete: (path: string) => invoke<void>("recording_delete", { path }),
   recordingsDirPath: () => invoke<string>("recordings_dir_path"),
+
+  logList: (query: LogQuery) => invoke<LogEntry[]>("log_list", { query }),
+  logClear: () => invoke<void>("log_clear"),
 
   logsRead: () => invoke<string>("logs_read"),
   logsPath: () => invoke<string>("logs_path"),

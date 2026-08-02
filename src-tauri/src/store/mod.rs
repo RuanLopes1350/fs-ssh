@@ -183,6 +183,81 @@ impl Db {
         Ok(())
     }
 
+    // ------------------------------------------------------------------ logs
+
+    /// Registra um evento. Falha de escrita nunca derruba a operação em curso —
+    /// log é observabilidade, não parte do fluxo.
+    pub fn log_event(
+        &self,
+        level: &str,
+        kind: &str,
+        connection_id: Option<&str>,
+        connection: &str,
+        message: &str,
+    ) {
+        let Ok(c) = self.lock() else { return };
+        let _ = c.execute(
+            "INSERT INTO app_logs (ts, level, kind, connection_id, connection, message)
+             VALUES (?1,?2,?3,?4,?5,?6)",
+            params![now(), level, kind, connection_id, connection, message],
+        );
+    }
+
+    pub fn list_logs(&self, q: &LogQuery) -> AppResult<Vec<LogEntry>> {
+        let mut sql = String::from(
+            "SELECT id, ts, level, kind, connection_id, connection, message FROM app_logs WHERE 1=1",
+        );
+        let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        // As datas chegam como dia local; comparar com o `ts` RFC3339 em UTC
+        // funciona porque o formato é ordenável lexicograficamente.
+        if let Some(from) = q.from.as_deref().filter(|s| !s.is_empty()) {
+            sql.push_str(" AND ts >= ?");
+            args.push(Box::new(format!("{from}T00:00:00")));
+        }
+        if let Some(to) = q.to.as_deref().filter(|s| !s.is_empty()) {
+            sql.push_str(" AND ts <= ?");
+            args.push(Box::new(format!("{to}T23:59:59.999")));
+        }
+        if let Some(id) = q.connection_id.as_deref().filter(|s| !s.is_empty()) {
+            sql.push_str(" AND connection_id = ?");
+            args.push(Box::new(id.to_string()));
+        }
+        if let Some(level) = q.level.as_deref().filter(|s| !s.is_empty()) {
+            sql.push_str(" AND level = ?");
+            args.push(Box::new(level.to_string()));
+        }
+        if let Some(search) = q.search.as_deref().filter(|s| !s.trim().is_empty()) {
+            sql.push_str(" AND (message LIKE ? OR connection LIKE ?)");
+            let like = format!("%{}%", search.trim());
+            args.push(Box::new(like.clone()));
+            args.push(Box::new(like));
+        }
+        sql.push_str(" ORDER BY ts DESC, id DESC LIMIT ?");
+        args.push(Box::new(q.limit.unwrap_or(1000).clamp(1, 5000)));
+
+        let c = self.lock()?;
+        let mut stmt = c.prepare(&sql)?;
+        let refs: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| b.as_ref()).collect();
+        let rows = stmt.query_map(refs.as_slice(), |r| {
+            Ok(LogEntry {
+                id: r.get(0)?,
+                ts: r.get(1)?,
+                level: r.get(2)?,
+                kind: r.get(3)?,
+                connection_id: r.get(4)?,
+                connection: r.get(5)?,
+                message: r.get(6)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn clear_logs(&self) -> AppResult<()> {
+        self.lock()?.execute("DELETE FROM app_logs", [])?;
+        Ok(())
+    }
+
     // ---------------------------------------------------------- port forwards
 
     pub fn list_forwards(&self, connection_id: &str) -> AppResult<Vec<PortForward>> {

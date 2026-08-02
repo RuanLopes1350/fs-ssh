@@ -160,6 +160,10 @@ interface AppStore {
   tunnelsOpen: boolean;
   broadcast: boolean;
   sidebarOpen: boolean;
+  /** Sidebar recolhida: só os ícones das conexões. */
+  sidebarRail: boolean;
+  /** Focus mode: tela cheia, sem sidebar nem barra de abas. */
+  focusMode: boolean;
   collapsedFolders: string[];
   settings: Settings;
 
@@ -174,6 +178,11 @@ interface AppStore {
   paletteFor: (connectionId: string) => TerminalPalette;
   /** Reaplica o tema de cada painel aberto — chamado após salvar/importar temas. */
   applyPalettes: () => void;
+  /**
+   * Aplica uma conexão só em memória (pré-visualização do Sheet de edição):
+   * atualiza o catálogo e os painéis abertos sem tocar no banco.
+   */
+  previewConnection: (conn: Connection) => void;
 
   addTab: (pane: Pane) => void;
   /** Divide o painel ativo da aba, colocando `pane` na nova metade. */
@@ -193,7 +202,9 @@ interface AppStore {
   toggleDocker: () => void;
   toggleTunnels: () => void;
   toggleBroadcast: () => void;
+  /** Alterna entre sidebar completa e recolhida (só ícones). */
   toggleSidebar: () => void;
+  setFocusMode: (v: boolean) => void;
   toggleFolderCollapsed: (id: string) => void;
   setSettings: (patch: Partial<Settings>) => void;
   clearLastSession: () => void;
@@ -220,6 +231,8 @@ export const useAppStore = create<AppStore>()(
       tunnelsOpen: false,
       broadcast: false,
       sidebarOpen: true,
+      sidebarRail: false,
+      focusMode: false,
       collapsedFolders: [],
       settings: {
         restoreTabs: true,
@@ -271,6 +284,25 @@ export const useAppStore = create<AppStore>()(
           }
         }
       },
+
+      previewConnection: (conn) =>
+        set((s) => ({
+          connections: s.connections.map((c) => (c.id === conn.id ? { ...c, ...conn } : c)),
+          tabs: s.tabs.map((t) => ({
+            ...t,
+            panes: t.panes.map((p) =>
+              p.connectionId === conn.id
+                ? {
+                    ...p,
+                    title: conn.name,
+                    color: conn.color,
+                    icon: conn.icon,
+                    isProduction: conn.isProduction,
+                  }
+                : p,
+            ),
+          })),
+        })),
 
       addTab: (pane) =>
         set((s) => {
@@ -379,7 +411,8 @@ export const useAppStore = create<AppStore>()(
       toggleTunnels: () =>
         set((s) => ({ tunnelsOpen: !s.tunnelsOpen, sftpOpen: false, dockerOpen: false })),
       toggleBroadcast: () => set((s) => ({ broadcast: !s.broadcast })),
-      toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+      toggleSidebar: () => set((s) => ({ sidebarRail: !s.sidebarRail })),
+      setFocusMode: (focusMode) => set({ focusMode }),
       toggleFolderCollapsed: (id) =>
         set((s) => ({
           collapsedFolders: s.collapsedFolders.includes(id)
@@ -397,6 +430,7 @@ export const useAppStore = create<AppStore>()(
         fontSize: s.fontSize,
         sftpOpen: s.sftpOpen,
         sidebarOpen: s.sidebarOpen,
+        sidebarRail: s.sidebarRail,
         collapsedFolders: s.collapsedFolders,
         settings: s.settings,
         lastSessionConnectionIds: s.lastSessionConnectionIds,

@@ -50,7 +50,7 @@ pub async fn ssh_connect(
         None => None,
     };
 
-    let connected = connect::connect(
+    let connected = match connect::connect(
         state.db.clone(),
         &conn,
         jump_conn.as_ref(),
@@ -59,7 +59,30 @@ pub async fn ssh_connect(
         args.secret.as_deref(),
         args.jump_secret.as_deref(),
     )
-    .await?;
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            // Pedido de senha/host key é passo do fluxo, não falha — não polui
+            // o log com um "erro" a cada diálogo.
+            let routine = matches!(
+                e,
+                AppError::AuthRequired { .. }
+                    | AppError::HostKeyUnknown { .. }
+                    | AppError::HostKeyChanged { .. }
+            );
+            if !routine {
+                state.db.log_event(
+                    "error",
+                    "connect",
+                    Some(&conn.id),
+                    &conn.name,
+                    &format!("falha ao conectar em {}@{}: {e}", conn.username, conn.host),
+                );
+            }
+            return Err(e);
+        }
+    };
 
     let channel = connected.handle.channel_open_session().await?;
     channel
@@ -91,9 +114,21 @@ pub async fn ssh_connect(
         .insert(info.clone(), tx, connected.remote_targets.clone())
         .await;
     state.db.touch_connection(&conn.id)?;
+    state.db.log_event(
+        "info",
+        "connect",
+        Some(&conn.id),
+        &conn.name,
+        &format!(
+            "sessão aberta com {}@{}:{} ({})",
+            conn.username, conn.host, conn.port, connected.host_fingerprint
+        ),
+    );
 
     let sessions = state.sessions.clone();
     let sid = session_id.clone();
+    let db = state.db.clone();
+    let log_conn = (conn.id.clone(), conn.name.clone());
     tauri::async_runtime::spawn(async move {
         run_session(
             connected.handle,
@@ -110,6 +145,13 @@ pub async fn ssh_connect(
         if let Some(h) = sessions.remove(&sid).await {
             h.abort_all_forwards().await;
         }
+        db.log_event(
+            "info",
+            "disconnect",
+            Some(&log_conn.0),
+            &log_conn.1,
+            "sessão encerrada",
+        );
     });
 
     Ok(info)

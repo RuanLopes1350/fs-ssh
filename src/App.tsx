@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Cable,
   Circle,
   Container,
   FolderTree,
   History,
+  Maximize2,
+  Minimize2,
   Minus,
   PanelLeft,
   Plug,
@@ -23,7 +26,7 @@ import { CommandPalette, type PaletteAction } from "./components/CommandPalette"
 import { AuthDialog, ConfirmDialog, HostKeyDialog, Spinner } from "./components/Dialogs";
 import { ConnIcon } from "./components/Icon";
 import { SettingsDialog } from "./components/SettingsDialog";
-import { ConnectionForm, EMPTY_CONNECTION } from "./connections/ConnectionForm";
+import { ConnectionSheet, EMPTY_CONNECTION } from "./connections/ConnectionSheet";
 import { ManagePanel } from "./connections/ManagePanel";
 import { DockerPanel } from "./docker/DockerPanel";
 import { api, asAppError } from "./lib/ipc";
@@ -34,6 +37,7 @@ import type {
   HostKeyPrompt,
   SessionClosed,
 } from "./lib/types";
+import { TooltipProvider } from "./components/ui/tooltip";
 import { SftpPanel } from "./sftp/SftpPanel";
 import { Sidebar } from "./sidebar/Sidebar";
 import { TunnelsPanel } from "./tunnels/TunnelsPanel";
@@ -78,6 +82,8 @@ export default function App() {
   const broadcast = useAppStore((s) => s.broadcast);
   const fontSize = useAppStore((s) => s.fontSize);
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
+  const sidebarRail = useAppStore((s) => s.sidebarRail);
+  const focusMode = useAppStore((s) => s.focusMode);
   const loadAll = useAppStore((s) => s.loadAll);
 
   const [editing, setEditing] = useState<Connection | null>(null);
@@ -108,6 +114,21 @@ export default function App() {
       if (found.length) setRestoreOffer(found);
     })();
   }, [loadAll]);
+
+  /**
+   * Focus mode: tela cheia do sistema + esconde sidebar e barra de abas.
+   * Só o terminal fica, com uma saída discreta no canto.
+   */
+  const setFocus = useCallback(async (on: boolean) => {
+    useAppStore.getState().setFocusMode(on);
+    try {
+      await getCurrentWindow().setFullscreen(on);
+    } catch {
+      // Sem permissão de fullscreen o modo ainda vale dentro da janela.
+    }
+    // O terminal precisa remedir depois que o layout assenta.
+    window.setTimeout(() => window.dispatchEvent(new Event("resize")), 120);
+  }, []);
 
   const cancelReconnect = useCallback((paneId: string) => {
     const timer = reconnectTimers.current.get(paneId);
@@ -521,7 +542,12 @@ export default function App() {
         }
       } else if (e.key === "b") {
         e.preventDefault();
-        store.toggleSidebar();
+        // ⌘B esconde/mostra; ⌘⇧B recolhe para a faixa de ícones.
+        if (e.shiftKey) store.toggleSidebar();
+        else useAppStore.setState({ sidebarOpen: !store.sidebarOpen });
+      } else if ((e.key === "f" || e.key === "F") && e.shiftKey) {
+        e.preventDefault();
+        void setFocus(!useAppStore.getState().focusMode);
       } else if (e.key === ",") {
         e.preventDefault();
         setSettingsOpen((v) => !v);
@@ -704,8 +730,16 @@ export default function App() {
   };
 
   return (
-    <div className="app" data-sidebar={sidebarOpen}>
-      {sidebarOpen && (
+    // O provider precisa envolver a árvore inteira: o Radix Tooltip lança se
+    // um `Tooltip.Root` (sidebar recolhida) renderizar sem ele.
+    <TooltipProvider delayDuration={250} skipDelayDuration={400}>
+    <div
+      className="app"
+      data-sidebar={sidebarOpen && !focusMode}
+      data-rail={sidebarRail}
+      data-focus={focusMode}
+    >
+      {sidebarOpen && !focusMode && (
         <Sidebar
           onConnect={requestConnect}
           onConnectSplit={activeTab ? connectInSplit : undefined}
@@ -718,13 +752,33 @@ export default function App() {
       )}
 
       <main className="main">
+        {focusMode && (
+          <button
+            className="focus-exit"
+            title="Sair do focus mode (⌘⇧F ou Esc)"
+            onClick={() => void setFocus(false)}
+          >
+            <Minimize2 size={13} /> sair do foco
+          </button>
+        )}
+
         <div className="tabbar">
           <button
             className="icon-btn"
             style={{ alignSelf: "center", flex: "none" }}
-            title={sidebarOpen ? "Esconder barra lateral (⌘B)" : "Mostrar barra lateral (⌘B)"}
-            data-active={!sidebarOpen}
-            onClick={() => useAppStore.getState().toggleSidebar()}
+            title={
+              !sidebarOpen
+                ? "Mostrar barra lateral (⌘B)"
+                : sidebarRail
+                  ? "Expandir barra lateral (⌘⇧B)"
+                  : "Recolher para ícones (⌘⇧B)"
+            }
+            data-active={!sidebarOpen || sidebarRail}
+            onClick={() => {
+              const s = useAppStore.getState();
+              if (!s.sidebarOpen) useAppStore.setState({ sidebarOpen: true });
+              else s.toggleSidebar();
+            }}
           >
             <PanelLeft size={14} />
           </button>
@@ -843,6 +897,14 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              data-active={focusMode}
+              title="Focus mode — tela cheia só com o terminal (⌘⇧F)"
+              onClick={() => void setFocus(!focusMode)}
+            >
+              <Maximize2 size={14} />
+            </button>
+            <button
+              className="icon-btn"
               title="Configurações (⌘,)"
               onClick={() => setSettingsOpen(true)}
             >
@@ -897,7 +959,7 @@ export default function App() {
         </div>
       </main>
 
-      {editing && <ConnectionForm initial={editing} onClose={() => setEditing(null)} />}
+      {editing && <ConnectionSheet initial={editing} onClose={() => setEditing(null)} />}
       {managing && (
         <ManagePanel
           activeSessionId={activePane?.status === "open" ? activePane.sessionId : null}
@@ -1073,6 +1135,7 @@ export default function App() {
         />
       )}
     </div>
+    </TooltipProvider>
   );
 }
 

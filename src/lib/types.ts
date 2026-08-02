@@ -198,6 +198,27 @@ export interface PortForward {
   autoStart: boolean;
 }
 
+export interface LogEntry {
+  id: number;
+  /** RFC3339 em UTC. */
+  ts: string;
+  level: "info" | "warn" | "error";
+  kind: string;
+  connectionId: string | null;
+  connection: string;
+  message: string;
+}
+
+/** Filtros da tela de logs. Datas em `YYYY-MM-DD`. */
+export interface LogQuery {
+  from?: string;
+  to?: string;
+  connectionId?: string;
+  level?: string;
+  search?: string;
+  limit?: number;
+}
+
 export interface Recording {
   name: string;
   path: string;

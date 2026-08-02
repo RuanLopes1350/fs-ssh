@@ -128,6 +128,33 @@ fn default_bind() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LogEntry {
+    #[serde(default)]
+    pub id: i64,
+    /// RFC3339 em UTC.
+    pub ts: String,
+    pub level: String,
+    pub kind: String,
+    pub connection_id: Option<String>,
+    #[serde(default)]
+    pub connection: String,
+    pub message: String,
+}
+
+/// Filtros da tela de logs. Datas em `YYYY-MM-DD` (dia local do usuário).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogQuery {
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub connection_id: Option<String>,
+    pub level: Option<String>,
+    pub search: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct KnownHost {
     pub host: String,
     pub port: u16,

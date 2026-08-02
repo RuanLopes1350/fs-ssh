@@ -21,6 +21,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { ConfirmDialog, InputDialog, Spinner } from "../components/Dialogs";
 import { Modal } from "../components/Dialogs";
 import { api, asAppError } from "../lib/ipc";
+import { LogsView } from "../logs/LogsView";
 import { terminals } from "../terminal/session";
 import { useAppStore } from "../store/useAppStore";
 import type {
@@ -41,6 +42,7 @@ type TabKey =
   | "hosts"
   | "recordings"
   | "logs"
+  | "raw"
   | "import";
 
 export function ManagePanel({
@@ -77,6 +79,7 @@ export function ManagePanel({
             ["hosts", "Hosts conhecidos"],
             ["recordings", "Gravações"],
             ["logs", "Logs"],
+            ["raw", "Log bruto"],
             ["import", "~/.ssh/config"],
           ] as [TabKey, string][]
         ).map(([k, label]) => (
@@ -107,7 +110,8 @@ export function ManagePanel({
       {tab === "themes" && <ThemesTab />}
       {tab === "hosts" && <HostsTab />}
       {tab === "recordings" && <RecordingsTab />}
-      {tab === "logs" && <LogsTab />}
+      {tab === "logs" && <LogsView />}
+      {tab === "raw" && <RawLogTab />}
       {tab === "import" && <ImportTab />}
     </Modal>
   );
@@ -1105,7 +1109,8 @@ function RecordingsTab() {
 
 // --------------------------------------------------------------------- logs
 
-function LogsTab() {
+/** Log bruto do tracing (arquivo) — complementa a tela de eventos filtrável. */
+function RawLogTab() {
   const [text, setText] = useState("");
   const [path, setPath] = useState("");
   const [loading, setLoading] = useState(true);

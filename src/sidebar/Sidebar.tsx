@@ -20,7 +20,7 @@ import {
 import { ContextMenu, type MenuPosition } from "../components/ContextMenu";
 import { ConfirmDialog, InputDialog } from "../components/Dialogs";
 import { ConnIcon } from "../components/Icon";
-import { withAlpha } from "../lib/color";
+import { Tooltip } from "../components/ui/tooltip";
 import { api } from "../lib/ipc";
 import { activePaneOf, filterConnections, useAppStore } from "../store/useAppStore";
 import type { Connection, Folder } from "../lib/types";
@@ -29,15 +29,7 @@ import type { Connection, Folder } from "../lib/types";
 const SECTION_RECENT = "__recentes__";
 const SECTION_ROOT = "__sem_pasta__";
 
-export function Sidebar({
-  onConnect,
-  onConnectSplit,
-  onEdit,
-  onDuplicate,
-  onDelete,
-  onNew,
-  onManage,
-}: {
+interface SidebarProps {
   onConnect: (c: Connection) => void;
   /** Presente quando há aba ativa para receber um split. */
   onConnectSplit?: (c: Connection, dir: "row" | "col") => void;
@@ -46,7 +38,9 @@ export function Sidebar({
   onDelete: (c: Connection) => void;
   onNew: () => void;
   onManage: () => void;
-}) {
+}
+
+export function Sidebar(props: SidebarProps) {
   const connections = useAppStore((s) => s.connections);
   const folders = useAppStore((s) => s.folders);
   const tags = useAppStore((s) => s.tags);
@@ -55,6 +49,7 @@ export function Sidebar({
   const collapsedFolders = useAppStore((s) => s.collapsedFolders);
   const tabs = useAppStore((s) => s.tabs);
   const activeTabId = useAppStore((s) => s.activeTabId);
+  const rail = useAppStore((s) => s.sidebarRail);
   const setSearch = useAppStore((s) => s.setSearch);
   const toggleTag = useAppStore((s) => s.toggleTag);
   const toggleFolderCollapsed = useAppStore((s) => s.toggleFolderCollapsed);
@@ -71,11 +66,10 @@ export function Sidebar({
 
   /** Conexão sendo arrastada para uma pasta. */
   const [dragConnId, setDragConnId] = useState<string | null>(null);
-  /** Pasta destacada como alvo (id da pasta ou SECTION_ROOT). */
   const [dropFolder, setDropFolder] = useState<string | null>(null);
 
-  // A conexão do painel ativo fica destacada na lista — trocar de aba (ou de
-  // painel num split) mostra na hora "onde" você está.
+  // A conexão do painel ativo fica destacada — trocar de aba (ou de painel num
+  // split) mostra na hora "onde" você está.
   const activeConnectionId =
     activePaneOf(tabs.find((t) => t.id === activeTabId))?.connectionId ?? null;
 
@@ -84,11 +78,8 @@ export function Sidebar({
     [connections, search, selectedTagIds],
   );
   const filtering = search.trim().length > 0 || selectedTagIds.length > 0;
-
   const collapsed = (id: string) => collapsedFolders.includes(id) && !filtering;
 
-  // Recentes primeiro ajuda mais que ordem alfabética: quem usa 40 servidores
-  // volta aos mesmos 5 o dia inteiro.
   const recent = useMemo(
     () =>
       [...visible]
@@ -97,8 +88,7 @@ export function Sidebar({
         .slice(0, 5),
     [visible],
   );
-  // "Recentes" é um atalho, não uma pasta: as mesmas conexões continuam
-  // listadas na pasta a que pertencem (aparecem duas vezes de propósito).
+
   const byFolder = useMemo(() => {
     const map = new Map<string | null, Connection[]>();
     for (const c of visible) {
@@ -112,6 +102,11 @@ export function Sidebar({
 
   const rootConns = byFolder.get(null) ?? [];
 
+  const openMenu = (conn: Connection) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    setMenu({ conn, at: { x: e.clientX, y: e.clientY } });
+  };
+
   const moveToFolder = async (connId: string, folderId: string | null) => {
     const conn = connections.find((c) => c.id === connId);
     if (!conn || conn.folderId === folderId) return;
@@ -119,7 +114,6 @@ export function Sidebar({
     await reloadConnections();
   };
 
-  /** Cabeçalhos de pasta (e "Sem pasta") aceitam soltar uma conexão. */
   const folderDropProps = (target: string) => ({
     "data-drop": dropFolder === target,
     onDragOver: (e: React.DragEvent) => {
@@ -142,12 +136,9 @@ export function Sidebar({
     conn: c,
     active: c.id === activeConnectionId,
     dragging: c.id === dragConnId,
-    onConnect,
-    onEdit,
-    onContextMenu: (e: React.MouseEvent) => {
-      e.preventDefault();
-      setMenu({ conn: c, at: { x: e.clientX, y: e.clientY } });
-    },
+    onConnect: props.onConnect,
+    onEdit: props.onEdit,
+    onContextMenu: openMenu(c),
     onDragStart: (e: React.DragEvent) => {
       setDragConnId(c.id);
       e.dataTransfer.effectAllowed = "move";
@@ -169,180 +160,8 @@ export function Sidebar({
   const chevron = (id: string) =>
     collapsed(id) ? <ChevronRight size={11} /> : <ChevronDown size={11} />;
 
-  return (
-    <aside className="sidebar">
-      <div className="sidebar__drag" data-tauri-drag-region />
-
-      <div className="sidebar__search">
-        <div style={{ position: "relative" }}>
-          <Search
-            size={13}
-            style={{
-              position: "absolute",
-              left: 8,
-              top: "50%",
-              transform: "translateY(-50%)",
-              color: "var(--text-faint)",
-            }}
-          />
-          <input
-            placeholder="Buscar servidor…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ paddingLeft: 26 }}
-          />
-        </div>
-      </div>
-
-      {tags.length > 0 && (
-        <div className="tags">
-          {tags.map((t) => {
-            const active = selectedTagIds.includes(t.id);
-            return (
-              <button
-                key={t.id}
-                className="tag"
-                data-active={active}
-                style={active ? { color: t.color } : undefined}
-                onClick={() => toggleTag(t.id)}
-              >
-                <span className="tag__dot" style={{ background: t.color }} />
-                {t.name}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="sidebar__list">
-        {recent.length > 0 && (
-          <>
-            <div
-              className="sidebar__section sidebar__folder"
-              role="button"
-              tabIndex={0}
-              onClick={() => toggleFolderCollapsed(SECTION_RECENT)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  toggleFolderCollapsed(SECTION_RECENT);
-                }
-              }}
-            >
-              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                {chevron(SECTION_RECENT)}
-                <History size={11} />
-                Recentes
-              </span>
-              <span>{recent.length}</span>
-            </div>
-            {/* A mesma conexão também aparece na sua pasta — o prefixo na key
-                evita colisão entre as duas linhas irmãs. */}
-            {!collapsed(SECTION_RECENT) &&
-              recent.map((c) => <ConnRow key={`recent-${c.id}`} {...rowProps(c)} />)}
-          </>
-        )}
-
-        {folders.map((f) => {
-          const conns = byFolder.get(f.id) ?? [];
-          // Durante uma busca, pasta vazia é ruído; sem busca ela aparece para
-          // poder receber conexões.
-          if (filtering && conns.length === 0) return null;
-          return (
-            <div key={f.id}>
-              <div
-                className="sidebar__section sidebar__folder"
-                role="button"
-                tabIndex={0}
-                onClick={() => toggleFolderCollapsed(f.id)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    toggleFolderCollapsed(f.id);
-                  }
-                }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setFolderMenu({ folder: f, at: { x: e.clientX, y: e.clientY } });
-                }}
-                {...folderDropProps(f.id)}
-              >
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  {chevron(f.id)}
-                  <FolderIcon size={11} />
-                  {f.name}
-                </span>
-                <span>{conns.length}</span>
-              </div>
-              {!collapsed(f.id) &&
-                conns.map((c) => <ConnRow key={c.id} {...rowProps(c)} />)}
-            </div>
-          );
-        })}
-
-        <div
-          className="sidebar__section sidebar__folder"
-          role="button"
-          tabIndex={0}
-          onClick={() => toggleFolderCollapsed(SECTION_ROOT)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              toggleFolderCollapsed(SECTION_ROOT);
-            }
-          }}
-          {...folderDropProps(SECTION_ROOT)}
-        >
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            {chevron(SECTION_ROOT)}
-            <Inbox size={11} />
-            {folders.length || recent.length ? "Sem pasta" : "Conexões"}
-          </span>
-          <span>{rootConns.length}</span>
-        </div>
-
-        {!collapsed(SECTION_ROOT) &&
-          rootConns.map((c) => <ConnRow key={c.id} {...rowProps(c)} />)}
-
-        {dragConnId && (
-          <div className="muted" style={{ padding: "10px 8px", textAlign: "center", fontSize: 11 }}>
-            Solte sobre uma pasta (ou em "Sem pasta") para mover.
-          </div>
-        )}
-
-        {visible.length === 0 && (
-          <div className="muted" style={{ padding: "16px 8px", textAlign: "center" }}>
-            {connections.length === 0
-              ? "Nenhuma conexão ainda."
-              : "Nada corresponde ao filtro."}
-          </div>
-        )}
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          gap: 6,
-          padding: 8,
-          borderTop: "1px solid var(--border)",
-        }}
-      >
-        <button className="btn btn--quiet" style={{ flex: 1 }} onClick={onNew}>
-          <Plus size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
-          Nova conexão
-        </button>
-        <button
-          className="icon-btn"
-          title="Nova pasta"
-          onClick={() => setCreatingFolder(true)}
-        >
-          <FolderPlus size={15} />
-        </button>
-        <button className="icon-btn" title="Chaves, tags e temas" onClick={onManage}>
-          <Settings2 size={15} />
-        </button>
-      </div>
-
+  const dialogs = (
+    <>
       {menu && (
         <ContextMenu
           position={menu.at}
@@ -351,38 +170,38 @@ export function Sidebar({
             {
               label: "Conectar",
               icon: <Plug size={13} />,
-              onSelect: () => onConnect(menu.conn),
+              onSelect: () => props.onConnect(menu.conn),
             },
-            ...(onConnectSplit
+            ...(props.onConnectSplit
               ? [
                   {
                     label: "Conectar em split (lado a lado)",
                     icon: <SquareSplitHorizontal size={13} />,
-                    onSelect: () => onConnectSplit(menu.conn, "row" as const),
+                    onSelect: () => props.onConnectSplit!(menu.conn, "row"),
                   },
                   {
                     label: "Conectar em split (empilhado)",
                     icon: <SquareSplitVertical size={13} />,
-                    onSelect: () => onConnectSplit(menu.conn, "col" as const),
+                    onSelect: () => props.onConnectSplit!(menu.conn, "col"),
                   },
                 ]
               : []),
             {
               label: "Editar…",
               icon: <Pencil size={13} />,
-              onSelect: () => onEdit(menu.conn),
+              onSelect: () => props.onEdit(menu.conn),
             },
             {
               label: "Duplicar",
               icon: <Copy size={13} />,
-              onSelect: () => onDuplicate(menu.conn),
+              onSelect: () => props.onDuplicate(menu.conn),
             },
             {
               label: "Excluir",
               icon: <Trash2 size={13} />,
               danger: true,
               separatorBefore: true,
-              onSelect: () => onDelete(menu.conn),
+              onSelect: () => props.onDelete(menu.conn),
             },
           ]}
         />
@@ -461,10 +280,247 @@ export function Sidebar({
           onCancel={() => setDeletingFolder(null)}
         />
       )}
+    </>
+  );
+
+  // ------------------------------------------------------------ modo rail
+
+  if (rail) {
+    // Recolhida: só os ícones, na cor da conexão. Nome, usuário e porta ficam
+    // no tooltip — a lista continua navegável sem ocupar largura.
+    const railList = [
+      ...recent,
+      ...visible.filter((c) => !recent.some((r) => r.id === c.id)),
+    ];
+    return (
+      <aside className="sidebar sidebar--rail">
+        <div className="sidebar__drag" data-tauri-drag-region />
+        <div className="rail__list">
+          {railList.map((c) => (
+            <Tooltip
+              key={c.id}
+              content={
+                <span className="whitespace-nowrap">
+                  <b>{c.name}</b>
+                  <span className="text-faint">
+                    {" "}
+                    {c.username}@{c.host}:{c.port}
+                  </span>
+                </span>
+              }
+            >
+              <button
+                className="rail__item"
+                data-active={c.id === activeConnectionId}
+                style={{ color: c.color }}
+                onClick={() => props.onConnect(c)}
+                onContextMenu={openMenu(c)}
+              >
+                <ConnIcon name={c.icon} size={18} color={c.color} />
+                {c.isProduction && <span className="rail__prod" />}
+              </button>
+            </Tooltip>
+          ))}
+        </div>
+        <div className="rail__foot">
+          <Tooltip content="Nova conexão (⌘N)">
+            <button className="icon-btn" onClick={props.onNew}>
+              <Plus size={15} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Chaves, temas, gravações e logs">
+            <button className="icon-btn" onClick={props.onManage}>
+              <Settings2 size={15} />
+            </button>
+          </Tooltip>
+        </div>
+        {dialogs}
+      </aside>
+    );
+  }
+
+  // ------------------------------------------------------------ modo pleno
+
+  return (
+    <aside className="sidebar">
+      <div className="sidebar__drag" data-tauri-drag-region />
+
+      <div className="sidebar__search">
+        <div style={{ position: "relative" }}>
+          <Search
+            size={13}
+            style={{
+              position: "absolute",
+              left: 8,
+              top: "50%",
+              transform: "translateY(-50%)",
+              color: "var(--text-faint)",
+            }}
+          />
+          <input
+            placeholder="Buscar servidor…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ paddingLeft: 26 }}
+          />
+        </div>
+      </div>
+
+      {tags.length > 0 && (
+        <div className="tags">
+          {tags.map((t) => {
+            const active = selectedTagIds.includes(t.id);
+            return (
+              <button
+                key={t.id}
+                className="tag"
+                data-active={active}
+                style={active ? { color: t.color } : undefined}
+                onClick={() => toggleTag(t.id)}
+              >
+                <span className="tag__dot" style={{ background: t.color }} />
+                {t.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="sidebar__list">
+        {recent.length > 0 && (
+          <>
+            <SectionHeader
+              icon={<History size={11} />}
+              label="Recentes"
+              count={recent.length}
+              chevron={chevron(SECTION_RECENT)}
+              onToggle={() => toggleFolderCollapsed(SECTION_RECENT)}
+            />
+            {!collapsed(SECTION_RECENT) &&
+              recent.map((c) => <ConnRow key={`recent-${c.id}`} {...rowProps(c)} />)}
+          </>
+        )}
+
+        {folders.map((f) => {
+          const conns = byFolder.get(f.id) ?? [];
+          if (filtering && conns.length === 0) return null;
+          return (
+            <div key={f.id}>
+              <SectionHeader
+                icon={<FolderIcon size={11} />}
+                label={f.name}
+                count={conns.length}
+                chevron={chevron(f.id)}
+                onToggle={() => toggleFolderCollapsed(f.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setFolderMenu({ folder: f, at: { x: e.clientX, y: e.clientY } });
+                }}
+                dropProps={folderDropProps(f.id)}
+              />
+              {!collapsed(f.id) &&
+                conns.map((c) => <ConnRow key={c.id} {...rowProps(c)} />)}
+            </div>
+          );
+        })}
+
+        <SectionHeader
+          icon={<Inbox size={11} />}
+          label={folders.length || recent.length ? "Sem pasta" : "Conexões"}
+          count={rootConns.length}
+          chevron={chevron(SECTION_ROOT)}
+          onToggle={() => toggleFolderCollapsed(SECTION_ROOT)}
+          dropProps={folderDropProps(SECTION_ROOT)}
+        />
+        {!collapsed(SECTION_ROOT) &&
+          rootConns.map((c) => <ConnRow key={c.id} {...rowProps(c)} />)}
+
+        {dragConnId && (
+          <div className="muted" style={{ padding: "10px 8px", textAlign: "center", fontSize: 11 }}>
+            Solte sobre uma pasta (ou em "Sem pasta") para mover.
+          </div>
+        )}
+
+        {visible.length === 0 && (
+          <div className="muted" style={{ padding: "16px 8px", textAlign: "center" }}>
+            {connections.length === 0
+              ? "Nenhuma conexão ainda."
+              : "Nada corresponde ao filtro."}
+          </div>
+        )}
+      </div>
+
+      <div className="sidebar__foot">
+        <button className="btn btn--quiet" style={{ flex: 1 }} onClick={props.onNew}>
+          <Plus size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
+          Nova conexão
+        </button>
+        <button className="icon-btn" title="Nova pasta" onClick={() => setCreatingFolder(true)}>
+          <FolderPlus size={15} />
+        </button>
+        <button
+          className="icon-btn"
+          title="Chaves, temas, gravações e logs"
+          onClick={props.onManage}
+        >
+          <Settings2 size={15} />
+        </button>
+      </div>
+
+      {dialogs}
     </aside>
   );
 }
 
+function SectionHeader({
+  icon,
+  label,
+  count,
+  chevron,
+  onToggle,
+  onContextMenu,
+  dropProps,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  count: number;
+  chevron: React.ReactNode;
+  onToggle: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+  dropProps?: Record<string, unknown>;
+}) {
+  return (
+    <div
+      className="sidebar__section sidebar__folder"
+      role="button"
+      tabIndex={0}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      onContextMenu={onContextMenu}
+      {...dropProps}
+    >
+      <span style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+        {chevron}
+        {icon}
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+      </span>
+      <span>{count}</span>
+    </div>
+  );
+}
+
+/**
+ * Linha de conexão.
+ *
+ * Sem moldura: quem carrega a identidade do servidor é o ícone colorido, como
+ * na paleta ⌘K. A linha inteira é um `div` com role=button, não um `<button>`:
+ * o lápis é um botão próprio, e botão dentro de botão é HTML inválido.
+ */
 function ConnRow({
   conn,
   active,
@@ -485,9 +541,6 @@ function ConnRow({
   onDragEnd: () => void;
 }) {
   return (
-    // A linha inteira é um `div` com role=button, não um `<button>`: o lápis de
-    // editar é um botão próprio, e botão dentro de botão é HTML inválido — o
-    // clique no filho seria imprevisível entre navegadores.
     <div
       className="conn"
       role="button"
@@ -497,13 +550,6 @@ function ConnRow({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      style={{
-        borderColor: withAlpha(conn.color, active ? 0.95 : 0.55),
-        background: withAlpha(conn.color, active ? 0.16 : 0.07),
-      }}
-      // Um clique conecta. Não existe mais duplo-clique para editar: os dois
-      // handlers disparavam juntos e a conexão abria enquanto o formulário
-      // aparecia por cima. Editar é pelo lápis ou pelo menu de contexto.
       onClick={() => onConnect(conn)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -514,15 +560,14 @@ function ConnRow({
       onContextMenu={onContextMenu}
       title={`${conn.username}@${conn.host}:${conn.port}`}
     >
-      <ConnIcon name={conn.icon} color={conn.color} />
+      <ConnIcon name={conn.icon} color={conn.color} size={16} />
       <span className="conn__body">
         <span className="conn__name">
-          {conn.name}
+          <span className="conn__label">{conn.name}</span>
           {conn.isProduction && <span className="prod-badge">PROD</span>}
         </span>
         <span className="conn__host">
-          {conn.username}@{conn.host}
-          {conn.port !== 22 ? `:${conn.port}` : ""}
+          {conn.username}@{conn.host}:{conn.port}
         </span>
       </span>
 

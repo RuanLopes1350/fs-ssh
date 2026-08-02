@@ -111,6 +111,21 @@ const MIGRATIONS: &[&str] = &[
 
     CREATE INDEX idx_forwards_conn ON port_forwards(connection_id);
     "#,
+    // v4 — log de eventos da aplicação, consultável por data e conexão
+    r#"
+    CREATE TABLE app_logs (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts            TEXT NOT NULL,            -- RFC3339 UTC
+        level         TEXT NOT NULL,            -- info | warn | error
+        kind          TEXT NOT NULL,            -- connect | disconnect | tunnel | sftp | ...
+        connection_id TEXT,                     -- sem FK: o log sobrevive à conexão apagada
+        connection    TEXT NOT NULL DEFAULT '', -- nome no momento do evento
+        message       TEXT NOT NULL
+    );
+
+    CREATE INDEX idx_logs_ts ON app_logs(ts DESC);
+    CREATE INDEX idx_logs_conn ON app_logs(connection_id);
+    "#,
 ];
 
 pub fn migrate(conn: &Connection) -> AppResult<()> {

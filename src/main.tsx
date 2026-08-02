@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 
 import "@xterm/xterm/css/xterm.css";
+import "./tailwind.css";
 import "./styles.css";
 import App from "./App";
 

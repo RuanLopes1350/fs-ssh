@@ -48,6 +48,13 @@ pub async fn recording_start(
     let path = recordings_dir(&state.data_dir).join(file);
     let path = path.to_string_lossy().into_owned();
     handle.set_recording(Some(path.clone())).await?;
+    state.db.log_event(
+        "info",
+        "recording",
+        Some(&handle.info.connection_id),
+        &name,
+        &format!("gravação iniciada em {path}"),
+    );
     Ok(path)
 }
 
@@ -119,7 +126,23 @@ pub fn recordings_dir_path(state: State<'_, AppState>) -> String {
     recordings_dir(&state.data_dir).to_string_lossy().into_owned()
 }
 
-// ---------------------------------------------------------------------- logs
+// ------------------------------------------------------- log de eventos (DB)
+
+/// Eventos da aplicação, filtrados por data/conexão — alimenta a tela de logs.
+#[tauri::command]
+pub fn log_list(
+    state: State<'_, AppState>,
+    query: crate::store::models::LogQuery,
+) -> AppResult<Vec<crate::store::models::LogEntry>> {
+    state.db.list_logs(&query)
+}
+
+#[tauri::command]
+pub fn log_clear(state: State<'_, AppState>) -> AppResult<()> {
+    state.db.clear_logs()
+}
+
+// ------------------------------------------------------- log bruto (arquivo)
 
 #[tauri::command]
 pub fn logs_read(state: State<'_, AppState>) -> AppResult<String> {

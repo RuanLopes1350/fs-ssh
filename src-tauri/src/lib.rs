@@ -113,6 +113,8 @@ pub fn run() {
             cmd::record::recording_read,
             cmd::record::recording_delete,
             cmd::record::recordings_dir_path,
+            cmd::record::log_list,
+            cmd::record::log_clear,
             cmd::record::logs_read,
             cmd::record::logs_path,
             cmd::record::logs_clear,
