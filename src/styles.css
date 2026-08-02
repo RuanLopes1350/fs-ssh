@@ -1092,8 +1092,20 @@ textarea:focus {
   grid-template-columns: 1fr;
 }
 
+/* Os semáforos do macOS ocupam ~78px no canto superior esquerdo. Quando a
+   barra lateral não cobre esse espaço, a barra de abas recua para o botão de
+   recolher não encostar neles. */
 .app[data-sidebar="false"] .tabbar {
   padding-left: 78px;
+}
+
+.app[data-rail="true"][data-sidebar="true"] .tabbar {
+  padding-left: 32px;
+}
+
+.tabbar__toggle {
+  align-self: center;
+  flex: none;
 }
 
 /* Sidebar recolhida (rail): só os ícones das conexões. */

@@ -5,7 +5,6 @@ import {
   Copy,
   Folder as FolderIcon,
   FolderPlus,
-  History,
   Inbox,
   Pencil,
   Plug,
@@ -25,8 +24,7 @@ import { api } from "../lib/ipc";
 import { activePaneOf, filterConnections, useAppStore } from "../store/useAppStore";
 import type { Connection, Folder } from "../lib/types";
 
-/** Ids-sentinela das seções fixas, guardados junto com as pastas colapsadas. */
-const SECTION_RECENT = "__recentes__";
+/** Id-sentinela da seção sem pasta, guardado junto com as pastas colapsadas. */
 const SECTION_ROOT = "__sem_pasta__";
 
 interface SidebarProps {
@@ -79,15 +77,6 @@ export function Sidebar(props: SidebarProps) {
   );
   const filtering = search.trim().length > 0 || selectedTagIds.length > 0;
   const collapsed = (id: string) => collapsedFolders.includes(id) && !filtering;
-
-  const recent = useMemo(
-    () =>
-      [...visible]
-        .filter((c) => c.lastUsedAt)
-        .sort((a, b) => (b.lastUsedAt ?? "").localeCompare(a.lastUsedAt ?? ""))
-        .slice(0, 5),
-    [visible],
-  );
 
   const byFolder = useMemo(() => {
     const map = new Map<string | null, Connection[]>();
@@ -288,10 +277,7 @@ export function Sidebar(props: SidebarProps) {
   if (rail) {
     // Recolhida: só os ícones, na cor da conexão. Nome, usuário e porta ficam
     // no tooltip — a lista continua navegável sem ocupar largura.
-    const railList = [
-      ...recent,
-      ...visible.filter((c) => !recent.some((r) => r.id === c.id)),
-    ];
+    const railList = visible;
     return (
       <aside className="sidebar sidebar--rail">
         <div className="sidebar__drag" data-tauri-drag-region />
@@ -387,20 +373,6 @@ export function Sidebar(props: SidebarProps) {
       )}
 
       <div className="sidebar__list">
-        {recent.length > 0 && (
-          <>
-            <SectionHeader
-              icon={<History size={11} />}
-              label="Recentes"
-              count={recent.length}
-              chevron={chevron(SECTION_RECENT)}
-              onToggle={() => toggleFolderCollapsed(SECTION_RECENT)}
-            />
-            {!collapsed(SECTION_RECENT) &&
-              recent.map((c) => <ConnRow key={`recent-${c.id}`} {...rowProps(c)} />)}
-          </>
-        )}
-
         {folders.map((f) => {
           const conns = byFolder.get(f.id) ?? [];
           if (filtering && conns.length === 0) return null;
@@ -426,7 +398,7 @@ export function Sidebar(props: SidebarProps) {
 
         <SectionHeader
           icon={<Inbox size={11} />}
-          label={folders.length || recent.length ? "Sem pasta" : "Conexões"}
+          label={folders.length ? "Sem pasta" : "Conexões"}
           count={rootConns.length}
           chevron={chevron(SECTION_ROOT)}
           onToggle={() => toggleFolderCollapsed(SECTION_ROOT)}

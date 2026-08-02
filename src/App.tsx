@@ -763,9 +763,11 @@ export default function App() {
         )}
 
         <div className="tabbar">
+          {/* Um único botão, sempre o mesmo ícone e sem estado "ligado": ele
+              alterna a barra lateral, e quem mostra o estado é a própria
+              barra estar visível ou não. */}
           <button
-            className="icon-btn"
-            style={{ alignSelf: "center", flex: "none" }}
+            className="icon-btn tabbar__toggle"
             title={
               !sidebarOpen
                 ? "Mostrar barra lateral (⌘B)"
@@ -773,7 +775,6 @@ export default function App() {
                   ? "Expandir barra lateral (⌘⇧B)"
                   : "Recolher para ícones (⌘⇧B)"
             }
-            data-active={!sidebarOpen || sidebarRail}
             onClick={() => {
               const s = useAppStore.getState();
               if (!s.sidebarOpen) useAppStore.setState({ sidebarOpen: true });
