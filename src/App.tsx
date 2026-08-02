@@ -424,7 +424,7 @@ export default function App() {
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
   const activePane = activePaneOf(activeTab);
-  /** SFTP, Docker e túneis exigem SSH — o shell local não tem canal para isso. */
+  /** SFTP e túneis exigem canais SSH; containers valem também para a máquina local. */
   const isLocalPane = activePane?.connectionId === LOCAL_CONNECTION_ID;
   const remoteSessionId =
     activePane?.sessionId && !isLocalPane ? activePane.sessionId : null;
@@ -919,10 +919,10 @@ export default function App() {
             <button
               className="icon-btn"
               data-active={dockerOpen}
-              disabled={isLocalPane}
+              disabled={!activePane?.sessionId}
               title={
                 isLocalPane
-                  ? "Containers do host remoto — precisa de sessão SSH"
+                  ? "Containers Docker/Podman desta máquina"
                   : "Containers Docker/Podman do host"
               }
               onClick={() => useAppStore.getState().toggleDocker()}
@@ -993,8 +993,12 @@ export default function App() {
           {sftpOpen && remoteSessionId && (
             <SftpPanel key={remoteSessionId} sessionId={remoteSessionId} />
           )}
-          {dockerOpen && remoteSessionId && (
-            <DockerPanel key={remoteSessionId} sessionId={remoteSessionId} />
+          {dockerOpen && activePane?.sessionId && (
+            <DockerPanel
+              key={activePane.sessionId}
+              sessionId={activePane.sessionId}
+              local={isLocalPane}
+            />
           )}
           {tunnelsOpen && remoteSessionId && activePane && (
             <TunnelsPanel

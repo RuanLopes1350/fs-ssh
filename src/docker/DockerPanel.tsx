@@ -19,7 +19,14 @@ function shellSafe(name: string) {
  * As ações não executam nada sozinhas: elas digitam o comando no terminal da
  * aba ativa e apertam Enter, para o usuário ver exatamente o que rodou.
  */
-export function DockerPanel({ sessionId }: { sessionId: string }) {
+export function DockerPanel({
+  sessionId,
+  local = false,
+}: {
+  sessionId: string;
+  /** Sessão do terminal local — muda só o texto do cabeçalho. */
+  local?: boolean;
+}) {
   const [containers, setContainers] = useState<DockerContainer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +59,7 @@ export function DockerPanel({ sessionId }: { sessionId: string }) {
       <div className="pane__head">
         <Container size={14} />
         <span className="pane__path" style={{ direction: "ltr" }}>
-          Containers no host
+          {local ? "Containers nesta máquina" : "Containers no host"}
         </span>
         {loading && <Spinner />}
         <button className="icon-btn" title="Recarregar" onClick={() => void refresh()}>

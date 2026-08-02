@@ -186,13 +186,18 @@ async fn run_local_session(
                 Some(SessionCmd::Record { path, reply }) => {
                     let _ = reply.send(recorder.set(path));
                 }
+                // Exec vale para a própria máquina: é o que faz o painel de
+                // containers funcionar no terminal local. Roda fora do PTY,
+                // como no SSH, para não sujar a tela do usuário.
+                Some(SessionCmd::Exec { command, reply }) => {
+                    tokio::spawn(async move {
+                        let _ = reply.send(run_local_command(command).await);
+                    });
+                }
                 // Recursos que só existem sobre SSH. A mensagem é explícita
                 // para o frontend poder mostrá-la sem adivinhar.
                 Some(SessionCmd::OpenSftp(reply)) => {
                     let _ = reply.send(Err("o terminal local não tem SFTP".into()));
-                }
-                Some(SessionCmd::Exec { reply, .. }) => {
-                    let _ = reply.send(Err("o terminal local não suporta exec remoto".into()));
                 }
                 Some(SessionCmd::OpenDirectTcpip { reply, .. }) => {
                     let _ = reply.send(Err("túneis exigem uma sessão SSH".into()));
@@ -251,6 +256,34 @@ async fn run_local_session(
             reason,
         },
     );
+}
+
+/// Tempo máximo de um exec local — mesmo teto do exec por SSH.
+const EXEC_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Executa um comando na máquina local e devolve `(código, stdout+stderr)`.
+///
+/// Usa o shell em modo de login: sem isso o `PATH` não inclui `/usr/local/bin`
+/// nem o Homebrew, e o `docker` do usuário não seria encontrado.
+async fn run_local_command(command: String) -> Result<(u32, Vec<u8>), String> {
+    let shell = resolve_shell(None);
+    let run = tokio::process::Command::new(&shell)
+        .arg("-lc")
+        .arg(&command)
+        .output();
+
+    match tokio::time::timeout(EXEC_TIMEOUT, run).await {
+        Ok(Ok(out)) => {
+            let mut buf = out.stdout;
+            buf.extend_from_slice(&out.stderr);
+            Ok((out.status.code().unwrap_or(0).max(0) as u32, buf))
+        }
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(_) => Err(format!(
+            "comando não terminou em {}s",
+            EXEC_TIMEOUT.as_secs()
+        )),
+    }
 }
 
 fn flush(out: &IpcChannel<InvokeResponseBody>, buf: &mut Vec<u8>) {

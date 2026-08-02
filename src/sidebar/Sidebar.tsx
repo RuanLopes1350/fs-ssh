@@ -390,7 +390,7 @@ export function Sidebar(props: SidebarProps) {
       <div className="sidebar__list">
         {/* Fixo no topo: o shell da própria máquina, sempre a um clique. */}
         <button
-          className="conn conn--local"
+          className="conn"
           data-active={activeConnectionId === LOCAL_CONNECTION.id}
           onClick={() => props.onConnect(LOCAL_CONNECTION)}
           title="Abrir um shell nesta máquina"
@@ -406,6 +406,7 @@ export function Sidebar(props: SidebarProps) {
             <span className="conn__active-dot" />
           )}
         </button>
+        <div className="sidebar__divider" />
 
         {folders.map((f) => {
           const conns = byFolder.get(f.id) ?? [];
