@@ -1,12 +1,15 @@
 # fs-ssh
 
-Cliente SSH/SFTP para macOS com identidade visual por conexão. Feito com **Tauri 2 + React 19 + xterm.js 6** no frontend e **Rust (russh + russh-sftp + SQLite)** no backend — sem Electron, sem conta, sem nuvem: tudo local.
+Cliente SSH/SFTP para macOS com identidade visual por conexão. Feito com **Tauri 2 + React 19 + xterm.js 6 + shadcn/ui (Radix + Tailwind v4)** no frontend e **Rust (russh + russh-sftp + SQLite)** no backend — sem Electron, sem conta, sem nuvem: tudo local.
 
 ## Funcionalidades
 
 ### Catálogo de conexões
 - Conexões salvas em SQLite local (`app.db`), com nome, host, porta, usuário, cor, ícone, tema, notas e contador de uso.
+- Edição em **painel lateral (Sheet)** com **preview ao vivo**: cor, ícone e tema aparecem na sidebar, nas abas e nos terminais abertos enquanto você escolhe; fechar sem salvar reverte.
+- **~150 ícones** de sistemas operacionais, clouds, containers, IaC, CI/CD, bancos, mensageria, monitoramento, rede/VPN, runtimes, storage e self-hosted — além de ícones genéricos de categoria (servidor, firewall, load balancer, VM…), todos na cor da conexão.
 - **Pastas** colapsáveis para organizar (arraste uma conexão para dentro de uma pasta), **tags** coloridas com filtro combinado e busca por texto livre.
+- Barra lateral **recolhível só com ícones** (⌘⇧B) com tooltip de nome e `usuário@host:porta`, ou escondida por completo (⌘B).
 - Seção **Recentes** (atalho com as 5 últimas usadas) e destaque da conexão da aba ativa na lista.
 - **Importação do `~/.ssh/config`** (blocos `Host`, herança de `Host *`, `ProxyJump`), com pré-visualização e detecção de duplicatas.
 - Flag **produção**: confirmação extra ao conectar, badge PROD e faixa vermelha na sessão.
@@ -44,7 +47,11 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. Feito com **Taur
 
 ### Gravação de sessão e logs
 - **Gravar sessão** (botão ● na barra de ferramentas ou automático nas configurações): a saída do terminal vai para um arquivo de texto em `recordings/`, sem códigos de escape, com permissão 0600.
-- Painel de gestão → **Gravações** lista, visualiza e apaga; → **Logs** mostra o log da aplicação (conexões, túneis, falhas), com opção de limpar.
+- **Tela de logs** com filtro por **período (data inicial/final), conexão, nível e texto** — eventos de conexão, túneis e gravações ficam em SQLite; o log bruto do `tracing` fica em outra aba.
+- Painel de gestão → **Gravações** lista, visualiza e apaga.
+
+### Focus mode
+- **⌘⇧F** entra em tela cheia mostrando só o terminal (sem sidebar nem barra de abas), com uma saída discreta no canto.
 
 ### Temas
 - 6 temas embutidos + **editor de temas** com preview ao vivo nos terminais abertos e **importação de `.itermcolors`**.
@@ -62,7 +69,8 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. Feito com **Taur
 | ⌘K / ⌘T | Paleta: conectar ou rodar snippet |
 | ⌘N | Nova conexão |
 | ⌘F | Buscar no terminal |
-| ⌘B | Mostrar/esconder barra lateral |
+| ⌘B / ⌘⇧B | Esconder barra lateral / recolher para ícones |
+| ⌘⇧F | Focus mode (tela cheia) |
 | ⌘D / ⌘⇧D | Dividir painel (lado a lado / empilhado) |
 | ⌘⌥← → ↑ ↓ | Circular foco entre painéis |
 | ⌘1–9, ⌘⇧[ ] | Navegar entre abas |
