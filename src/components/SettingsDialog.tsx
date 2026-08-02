@@ -109,7 +109,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       {check(
         "dimInactivePanes",
         "Escurecer painéis sem foco",
-        "Numa aba dividida, o painel que não recebe o teclado fica levemente escurecido (passar o mouse já clareia). O painel em foco também ganha uma faixa na cor da conexão.",
+        "Numa aba dividida, o painel que não recebe o teclado fica levemente escurecido (passar o mouse já clareia). O painel em foco mostra uma etiqueta com o nome do servidor, que some sozinha.",
       )}
       {check(
         "autoRecord",

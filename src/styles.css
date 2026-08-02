@@ -942,24 +942,68 @@ textarea:focus {
 
 /* Indicação de foco em split, em duas camadas complementares:
 
-   1. uma faixa de 2px no topo do painel focado, na cor da conexão — o mesmo
-      vocabulário da faixa que já marca a sessão ativa sob a barra de abas;
+   1. uma etiqueta flutuante com o nome do servidor no painel focado, que some
+      sozinha depois de uns segundos e volta no hover;
    2. um escurecimento leve nos painéis SEM foco.
 
-   A moldura nos quatro lados foi abandonada: ela emoldurava o conteúdo, competia
-   com a saída do terminal e ficava ambígua com o contorno do broadcast. Faixa +
-   contraste dizem "é aqui que o que eu digitar vai cair" sem cercar nada. */
-.pane-slot[data-focused="true"]::after {
-  content: "";
+   Nem moldura nem faixa: as duas emolduravam o conteúdo e competiam com a saída
+   do terminal (a moldura ainda ficava ambígua com o contorno do broadcast). A
+   etiqueta responde de uma vez "onde está o foco" e "de qual servidor é este
+   painel" — a segunda pergunta é a que mais aparece com dois splits abertos. */
+.pane-badge {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  /* `--pane-accent` vem inline com a cor da conexão (ou vermelho em produção). */
-  background: var(--pane-accent, var(--accent));
+  top: 8px;
+  right: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 60%;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text);
+  background: #0b0e14e6;
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 4px 14px #0007;
   pointer-events: none;
-  z-index: 5;
+  /* Aparece na troca de foco e desaparece — o atraso deixa ler sem atrapalhar. */
+  animation: pane-badge-out 0.35s ease 2.2s forwards;
+}
+
+/* Enquanto o ponteiro está no painel, a etiqueta fica: é a forma de conferir
+   "em qual servidor eu estou" sem digitar nada. */
+.pane-slot:hover .pane-badge {
+  animation: none;
+  opacity: 1;
+}
+
+.pane-badge__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--pane-accent, var(--accent));
+}
+
+.pane-badge__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes pane-badge-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Sem animação, a etiqueta some na hora — mantê-la fixa viraria ruído
+     permanente sobre o terminal. */
+  .pane-badge {
+    opacity: 0;
+  }
 }
 
 /* Só escurece quando existe outro painel para comparar. */

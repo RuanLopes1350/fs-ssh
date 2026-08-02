@@ -715,6 +715,16 @@ export default function App() {
       >
         <TerminalView paneId={pane.id} visible={visible} />
 
+        {/* `key` inclui o id do painel focado para a etiqueta reanimar a cada
+            troca de foco — sem isso ela apareceria só na primeira vez. */}
+        {multi && focused && (
+          <div className="pane-badge" key={`badge-${tab.activePaneId}`}>
+            <span className="pane-badge__dot" />
+            <span className="pane-badge__name">{pane.title}</span>
+            {pane.isProduction && <span className="prod-badge">PROD</span>}
+          </div>
+        )}
+
         {searchOpen && visible && focused && (
           <TerminalSearchBar paneId={pane.id} onClose={() => setSearchOpen(false)} />
         )}
