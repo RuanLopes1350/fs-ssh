@@ -78,9 +78,6 @@ export default function App() {
   const tabs = useAppStore((s) => s.tabs);
   const connections = useAppStore((s) => s.connections);
   const activeTabId = useAppStore((s) => s.activeTabId);
-  const sftpOpen = useAppStore((s) => s.sftpOpen);
-  const dockerOpen = useAppStore((s) => s.dockerOpen);
-  const tunnelsOpen = useAppStore((s) => s.tunnelsOpen);
   const broadcast = useAppStore((s) => s.broadcast);
   const fontSize = useAppStore((s) => s.fontSize);
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
@@ -429,6 +426,8 @@ export default function App() {
   const isLocalPane = activePane?.connectionId === LOCAL_CONNECTION_ID;
   const remoteSessionId =
     activePane?.sessionId && !isLocalPane ? activePane.sessionId : null;
+  /** Painel lateral desta sessão — cada aba/painel guarda o seu. */
+  const openPanel = activePane?.panel ?? null;
 
   /** Abre a conexão num split da aba ativa (nova aba se não houver nenhuma). */
   const connectInSplit = (connection: Connection, dir: SplitDir) => {
@@ -917,40 +916,40 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
-              data-active={sftpOpen}
-              disabled={isLocalPane}
+              data-active={openPanel === "sftp"}
+              disabled={isLocalPane || !activePane?.sessionId}
               title={
                 isLocalPane
                   ? "SFTP só existe em sessão SSH"
-                  : "Painel de arquivos (SFTP)"
+                  : "Painel de arquivos (SFTP) desta sessão"
               }
-              onClick={() => useAppStore.getState().toggleSftp()}
+              onClick={() => useAppStore.getState().togglePanel("sftp")}
             >
               <FolderTree size={14} />
             </button>
             <button
               className="icon-btn"
-              data-active={dockerOpen}
+              data-active={openPanel === "docker"}
               disabled={!activePane?.sessionId}
               title={
                 isLocalPane
                   ? "Containers Docker/Podman desta máquina"
-                  : "Containers Docker/Podman do host"
+                  : "Containers Docker/Podman deste host"
               }
-              onClick={() => useAppStore.getState().toggleDocker()}
+              onClick={() => useAppStore.getState().togglePanel("docker")}
             >
               <Container size={14} />
             </button>
             <button
               className="icon-btn"
-              data-active={tunnelsOpen}
-              disabled={isLocalPane}
+              data-active={openPanel === "tunnels"}
+              disabled={isLocalPane || !activePane?.sessionId}
               title={
                 isLocalPane
                   ? "Túneis exigem sessão SSH"
-                  : "Túneis (port forwarding -L/-R)"
+                  : "Túneis desta conexão (port forwarding)"
               }
-              onClick={() => useAppStore.getState().toggleTunnels()}
+              onClick={() => useAppStore.getState().togglePanel("tunnels")}
             >
               <Cable size={14} />
             </button>
@@ -1002,17 +1001,17 @@ export default function App() {
             ))
           )}
 
-          {sftpOpen && remoteSessionId && (
+          {openPanel === "sftp" && remoteSessionId && (
             <SftpPanel key={remoteSessionId} sessionId={remoteSessionId} />
           )}
-          {dockerOpen && activePane?.sessionId && (
+          {openPanel === "docker" && activePane?.sessionId && (
             <DockerPanel
               key={activePane.sessionId}
               sessionId={activePane.sessionId}
               local={isLocalPane}
             />
           )}
-          {tunnelsOpen && remoteSessionId && activePane && (
+          {openPanel === "tunnels" && remoteSessionId && activePane && (
             <TunnelsPanel
               key={remoteSessionId}
               sessionId={remoteSessionId}

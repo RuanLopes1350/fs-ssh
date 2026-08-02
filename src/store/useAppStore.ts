@@ -29,11 +29,21 @@ export interface Pane {
   detail: string | null;
   /** Caminho da gravação em andamento, se houver. */
   recording?: string | null;
+  /**
+   * Painel lateral aberto nesta sessão.
+   *
+   * É por painel, não global: abrir os containers de um servidor não faz
+   * sentido continuar aberto ao trocar para outro.
+   */
+  panel?: PanelKind;
   /** Tentativa atual do auto-reconnect (0 = não está reconectando). */
   reconnectAttempt: number;
 }
 
 export type SplitDir = "row" | "col";
+
+/** Painel lateral da sessão: arquivos, containers ou túneis. */
+export type PanelKind = "sftp" | "docker" | "tunnels" | null;
 
 /** Árvore binária de layout: folha = painel, nó = divisão com proporção. */
 export type PaneLayout =
@@ -188,9 +198,6 @@ interface AppStore {
   search: string;
   selectedTagIds: string[];
   fontSize: number;
-  sftpOpen: boolean;
-  dockerOpen: boolean;
-  tunnelsOpen: boolean;
   broadcast: boolean;
   sidebarOpen: boolean;
   /** Sidebar recolhida: só os ícones das conexões. */
@@ -231,9 +238,8 @@ interface AppStore {
   setSearch: (s: string) => void;
   toggleTag: (id: string) => void;
   setFontSize: (n: number) => void;
-  toggleSftp: () => void;
-  toggleDocker: () => void;
-  toggleTunnels: () => void;
+  /** Abre/fecha o painel lateral do painel ativo da aba ativa. */
+  togglePanel: (kind: Exclude<PanelKind, null>) => void;
   toggleBroadcast: () => void;
   /** Alterna entre sidebar completa e recolhida (só ícones). */
   toggleSidebar: () => void;
@@ -259,9 +265,6 @@ export const useAppStore = create<AppStore>()(
       search: "",
       selectedTagIds: [],
       fontSize: 13,
-      sftpOpen: false,
-      dockerOpen: false,
-      tunnelsOpen: false,
       broadcast: false,
       sidebarOpen: true,
       sidebarRail: false,
@@ -438,12 +441,21 @@ export const useAppStore = create<AppStore>()(
             : [...s.selectedTagIds, id],
         })),
       setFontSize: (fontSize) => set({ fontSize: Math.min(24, Math.max(9, fontSize)) }),
-      toggleSftp: () =>
-        set((s) => ({ sftpOpen: !s.sftpOpen, dockerOpen: false, tunnelsOpen: false })),
-      toggleDocker: () =>
-        set((s) => ({ dockerOpen: !s.dockerOpen, sftpOpen: false, tunnelsOpen: false })),
-      toggleTunnels: () =>
-        set((s) => ({ tunnelsOpen: !s.tunnelsOpen, sftpOpen: false, dockerOpen: false })),
+      togglePanel: (kind) =>
+        set((s) => ({
+          tabs: s.tabs.map((t) =>
+            t.id === s.activeTabId
+              ? {
+                  ...t,
+                  panes: t.panes.map((p) =>
+                    p.id === t.activePaneId
+                      ? { ...p, panel: p.panel === kind ? null : kind }
+                      : p,
+                  ),
+                }
+              : t,
+          ),
+        })),
       toggleBroadcast: () => set((s) => ({ broadcast: !s.broadcast })),
       toggleSidebar: () => set((s) => ({ sidebarRail: !s.sidebarRail })),
       setFocusMode: (focusMode) => set({ focusMode }),
@@ -462,7 +474,6 @@ export const useAppStore = create<AppStore>()(
       // do SQLite) nem segredos.
       partialize: (s) => ({
         fontSize: s.fontSize,
-        sftpOpen: s.sftpOpen,
         sidebarOpen: s.sidebarOpen,
         sidebarRail: s.sidebarRail,
         collapsedFolders: s.collapsedFolders,
