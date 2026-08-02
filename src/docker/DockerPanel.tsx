@@ -1,11 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
-import { Container, FileText, RefreshCw, SquareTerminal } from "lucide-react";
+import {
+  Container,
+  FileText,
+  Play,
+  RefreshCw,
+  RotateCw,
+  Square,
+  SquareTerminal,
+  Trash2,
+} from "lucide-react";
 
-import { Spinner } from "../components/Dialogs";
+import { ConfirmDialog, Spinner } from "../components/Dialogs";
 import { api, asAppError } from "../lib/ipc";
 import type { DockerContainer } from "../lib/types";
 
 const encoder = new TextEncoder();
+
+type Action = "start" | "stop" | "restart" | "rm";
+
+const ACTION_LABEL: Record<Action, string> = {
+  start: "Iniciar",
+  stop: "Parar",
+  restart: "Reiniciar",
+  rm: "Excluir",
+};
 
 /** Nome que pode ir para a linha de comando do shell sem aspas nem sustos. */
 function shellSafe(name: string) {
@@ -13,11 +31,12 @@ function shellSafe(name: string) {
 }
 
 /**
- * Containers do host remoto (docker/podman), detectados via canal exec da
- * própria sessão SSH — nada instalado no servidor.
+ * Containers do host (docker/podman), detectados pelo canal exec da própria
+ * sessão — nada instalado no servidor.
  *
- * As ações não executam nada sozinhas: elas digitam o comando no terminal da
- * aba ativa e apertam Enter, para o usuário ver exatamente o que rodou.
+ * Iniciar/parar/reiniciar rodam pelo exec e reportam o erro do docker; shell e
+ * logs digitam o comando no terminal, para o usuário ver o que rodou e poder
+ * interromper com ⌃C.
  */
 export function DockerPanel({
   sessionId,
@@ -29,7 +48,12 @@ export function DockerPanel({
 }) {
   const [containers, setContainers] = useState<DockerContainer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<{
+    action: Action;
+    container: DockerContainer;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -47,6 +71,25 @@ export function DockerPanel({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const run = async (action: Action, c: DockerContainer) => {
+    setBusy(c.id);
+    setError(null);
+    try {
+      await api.dockerAction(sessionId, action, c.id);
+      await refresh();
+    } catch (e) {
+      setError(asAppError(e).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Parar e reiniciar derrubam serviço: confirmam antes. Iniciar não. */
+  const request = (action: Action, c: DockerContainer) => {
+    if (action === "start") void run(action, c);
+    else setConfirming({ action, container: c });
+  };
 
   const typeInTerminal = (command: string) => {
     void api
@@ -76,7 +119,7 @@ export function DockerPanel({
 
         {!error && !loading && containers.length === 0 && (
           <div className="muted" style={{ padding: 16, textAlign: "center" }}>
-            Nenhum container encontrado neste host.
+            Nenhum container encontrado{local ? " nesta máquina" : " neste host"}.
           </div>
         )}
 
@@ -96,6 +139,46 @@ export function DockerPanel({
                 {c.ports ? ` · ${c.ports}` : ""}
               </div>
             </div>
+
+            {busy === c.id ? (
+              <Spinner />
+            ) : c.running ? (
+              <>
+                <button
+                  className="icon-btn"
+                  title={`Parar ${c.name}`}
+                  onClick={() => request("stop", c)}
+                >
+                  <Square size={13} />
+                </button>
+                <button
+                  className="icon-btn"
+                  title={`Reiniciar ${c.name}`}
+                  onClick={() => request("restart", c)}
+                >
+                  <RotateCw size={13} />
+                </button>
+              </>
+            ) : (
+              <button
+                className="icon-btn"
+                title={`Iniciar ${c.name}`}
+                onClick={() => request("start", c)}
+              >
+                <Play size={13} color="var(--ok)" />
+              </button>
+            )}
+
+            {busy !== c.id && (
+              <button
+                className="icon-btn"
+                title={`Excluir ${c.name}`}
+                onClick={() => request("rm", c)}
+              >
+                <Trash2 size={13} color="var(--danger)" />
+              </button>
+            )}
+
             {shellSafe(c.name) && (
               <>
                 {c.running && (
@@ -123,6 +206,38 @@ export function DockerPanel({
           </div>
         ))}
       </div>
+
+      {confirming && (
+        <ConfirmDialog
+          title={`${ACTION_LABEL[confirming.action]} container`}
+          danger
+          confirmLabel={ACTION_LABEL[confirming.action]}
+          message={
+            confirming.action === "rm" ? (
+              <>
+                Excluir o container <b>{confirming.container.name}</b> (
+                {confirming.container.image}){local ? " desta máquina" : " deste host"}?
+                {confirming.container.running && " Ele está rodando e será parado antes."}{" "}
+                A ação não tem volta — os volumes nomeados não são removidos, mas o
+                container e seu sistema de arquivos sim.
+              </>
+            ) : (
+              <>
+                {confirming.action === "stop" ? "Parar" : "Reiniciar"}{" "}
+                <b>{confirming.container.name}</b> ({confirming.container.image})
+                {local ? " nesta máquina" : " no host"}? O serviço fica indisponível
+                {confirming.action === "restart" ? " durante o reinício." : "."}
+              </>
+            )
+          }
+          onConfirm={() => {
+            const { action, container } = confirming;
+            setConfirming(null);
+            void run(action, container);
+          }}
+          onCancel={() => setConfirming(null)}
+        />
+      )}
     </div>
   );
 }

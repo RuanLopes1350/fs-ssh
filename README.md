@@ -42,8 +42,9 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. Feito com **Taur
 - mkdir, renomear, excluir e **chmod** (grade rwx + octal) em diálogos próprios.
 - **Editar localmente com save-back**: o arquivo abre no seu editor e cada ⌘S volta para o servidor automaticamente; temporários nascem com permissão 0600 e são limpos.
 
-### Docker/Podman remoto
-- Painel que lista os containers do host conectado (via canal exec, nada instalado no servidor), com estado e portas.
+### Docker/Podman (remoto e local)
+- Painel que lista os containers do host conectado — ou da própria máquina, no terminal local — via canal exec, sem nada instalado no servidor.
+- **Iniciar, parar, reiniciar e excluir** containers, com confirmação nas ações que derrubam serviço e o erro do docker mostrado na íntegra.
 - Ações "shell no container" e "logs" — o comando é digitado no terminal, à vista.
 
 ### Gravação de sessão e logs

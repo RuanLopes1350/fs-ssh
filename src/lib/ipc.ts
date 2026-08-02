@@ -142,6 +142,11 @@ export const api = {
   sshExec: (sessionId: string, command: string) =>
     invoke<ExecResult>("ssh_exec", { sessionId, command }),
   dockerPs: (sessionId: string) => invoke<DockerContainer[]>("docker_ps", { sessionId }),
+  dockerAction: (
+    sessionId: string,
+    action: "start" | "stop" | "restart" | "rm",
+    container: string,
+  ) => invoke<void>("docker_action", { sessionId, action, container }),
 
   // ------------------------------------------------------------------ sftp
 

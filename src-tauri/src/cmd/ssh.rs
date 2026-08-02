@@ -368,6 +368,70 @@ pub async fn docker_ps(
     Ok(containers)
 }
 
+/// Ciclo de vida de um container: `start`, `stop`, `restart` ou `rm`.
+///
+/// Roda pelo canal exec (não pelo PTY do usuário) e devolve a saída do docker
+/// quando falha — "permission denied" ou "no such container" precisam chegar
+/// à UI, não sumir.
+#[tauri::command]
+pub async fn docker_action(
+    state: State<'_, AppState>,
+    session_id: String,
+    action: String,
+    container: String,
+) -> AppResult<()> {
+    if !matches!(action.as_str(), "start" | "stop" | "restart" | "rm") {
+        return Err(AppError::msg(format!("ação inválida: {action}")));
+    }
+    // Id/nome vem da listagem do próprio docker; ainda assim é validado antes
+    // de entrar numa linha de comando.
+    if container.is_empty()
+        || !container
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+    {
+        return Err(AppError::msg("identificador de container inválido"));
+    }
+
+    // `rm -f` para o container antes de remover: sem isso, apagar um container
+    // rodando falharia com uma mensagem que não ajuda em nada na UI. Volumes
+    // não são tocados (sem `-v`).
+    let args = if action == "rm" {
+        format!("rm -f {container}")
+    } else {
+        format!("{action} {container}")
+    };
+    let cmd = format!(
+        "command -v docker >/dev/null 2>&1 && docker {args} || \
+         (command -v podman >/dev/null 2>&1 && podman {args})"
+    );
+
+    let handle = state.sessions.get(&session_id).await?;
+    let (exit_code, out) = handle.exec(cmd).await?;
+    if exit_code != 0 {
+        let msg = String::from_utf8_lossy(&out).trim().to_string();
+        return Err(AppError::msg(if msg.is_empty() {
+            format!("falha ao executar {action} em {container}")
+        } else {
+            msg
+        }));
+    }
+
+    let name = state
+        .db
+        .get_connection(&handle.info.connection_id)
+        .map(|c| c.name)
+        .unwrap_or_else(|_| "Terminal local".into());
+    state.db.log_event(
+        "info",
+        "docker",
+        Some(&handle.info.connection_id),
+        &name,
+        &format!("container {container}: {action}"),
+    );
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn ssh_ping(state: State<'_, AppState>, session_id: String) -> AppResult<()> {
     state

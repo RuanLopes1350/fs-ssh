@@ -99,6 +99,7 @@ pub fn run() {
             cmd::ssh::local_open,
             cmd::ssh::ssh_exec,
             cmd::ssh::docker_ps,
+            cmd::ssh::docker_action,
             // port forwarding
             cmd::forward::forward_list,
             cmd::forward::forward_save,
