@@ -307,6 +307,14 @@ export interface SftpBookmark {
   path: string;
 }
 
+/** Uma entrada da árvore de um diretório, com o caminho relativo à raiz. */
+export interface WalkEntry {
+  rel: string;
+  size: number;
+  mtime: number;
+  isDir: boolean;
+}
+
 export interface Checksum {
   remote: string;
   local: string;

@@ -257,6 +257,37 @@ pub async fn sftp_mkdir_p(
     Ok(())
 }
 
+/// Teto de arquivos numa pasta arrastada de uma ponta à outra. Acima disso a
+/// fila viraria uma lista impossível de acompanhar, e a resposta certa é
+/// compactar no servidor antes de transferir.
+const MAX_TREE_ENTRIES: usize = 5000;
+
+/// Árvore de um diretório remoto (arquivos e subpastas), com caminhos relativos.
+/// É o que permite arrastar uma pasta inteira: o outro lado remonta a estrutura.
+#[tauri::command]
+pub async fn sftp_tree(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> AppResult<Vec<sftp::WalkEntry>> {
+    let s = state.sessions.get(&session_id).await?.sftp().await?;
+    sftp::walk_remote(&s, &path, MAX_TREE_ENTRIES, true).await
+}
+
+/// A mesma árvore, do lado local.
+#[tauri::command]
+pub fn local_tree(path: String) -> AppResult<Vec<sftp::WalkEntry>> {
+    sftp::walk_local(&path, MAX_TREE_ENTRIES, true)
+}
+
+/// `mkdir -p` local — o par do `sftp_mkdir_p` quando a pasta baixada tem
+/// subpastas vazias, que não têm arquivo para criá-las por tabela.
+#[tauri::command]
+pub fn local_mkdir_p(path: String) -> AppResult<()> {
+    std::fs::create_dir_all(path)?;
+    Ok(())
+}
+
 /// Teto de resultados da busca remota.
 const FIND_LIMIT: usize = 500;
 
@@ -440,8 +471,8 @@ pub async fn sftp_diff(
     use std::collections::HashMap;
 
     let s = state.sessions.get(&session_id).await?.sftp().await?;
-    let remote = sftp::walk_remote(&s, &remote_dir, MAX_SYNC_ENTRIES).await?;
-    let local = sftp::walk_local(&local_dir, MAX_SYNC_ENTRIES)?;
+    let remote = sftp::walk_remote(&s, &remote_dir, MAX_SYNC_ENTRIES, false).await?;
+    let local = sftp::walk_local(&local_dir, MAX_SYNC_ENTRIES, false)?;
 
     let mut remote_map: HashMap<String, sftp::WalkEntry> =
         remote.into_iter().map(|e| (e.rel.clone(), e)).collect();

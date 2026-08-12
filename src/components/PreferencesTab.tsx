@@ -1,13 +1,19 @@
 import { useState } from "react";
-import { DatabaseBackup, Settings as SettingsIcon } from "lucide-react";
+import { DatabaseBackup } from "lucide-react";
 import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 
-import { Modal, Spinner } from "./Dialogs";
+import { Spinner } from "./Dialogs";
 import { api, asAppError } from "../lib/ipc";
 import { useAppStore } from "../store/useAppStore";
 
-/** Preferências do app (⌘,). Tudo persiste localmente entre sessões. */
-export function SettingsDialog({ onClose }: { onClose: () => void }) {
+/**
+ * Preferências do app — a primeira aba da tela de configurações (⌘,).
+ *
+ * Era um diálogo separado do painel de chaves/temas/gravações, e a divisão não
+ * se sustentava: as duas telas respondem à mesma pergunta ("onde eu mudo isso?").
+ * Tudo persiste localmente entre sessões.
+ */
+export function PreferencesTab() {
   const settings = useAppStore((s) => s.settings);
   const fontSize = useAppStore((s) => s.fontSize);
   const setSettings = useAppStore((s) => s.setSettings);
@@ -60,16 +66,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   );
 
   return (
-    <Modal
-      title="Configurações"
-      icon={<SettingsIcon size={16} color="var(--accent)" />}
-      onClose={onClose}
-      footer={
-        <button className="btn btn--primary" onClick={onClose}>
-          Fechar
-        </button>
-      }
-    >
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div className="row">
         <div className="field" style={{ maxWidth: 180 }}>
           <label>Tamanho da fonte do terminal (⌘+ / ⌘−)</label>
@@ -164,6 +161,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           <code>app.db</code> no diretório de dados do app com o app fechado.
         </span>
       </div>
-    </Modal>
+    </div>
   );
 }

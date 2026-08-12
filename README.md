@@ -130,12 +130,12 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 | ⌘⇧S | Painel de sistema (carga, memória, disco, serviços, portas) |
 | ⌘⇧T | Painel de túneis |
 | ⌘⇧H | Painel de histórico de comandos |
-| ⌘⇧M | Chaves, snippets, temas, gravações e logs |
+| ⌘⇧M | Configurações na aba de chaves, snippets, temas, gravações e logs |
 | ⌘⇧R | Gravar a sessão |
 | ⌘+ / ⌘− | Aumentar / diminuir a fonte |
 | ⌘B / ⌘⇧B | Recolher para ícones / esconder a barra lateral |
 | ⌘⇧F | Focus mode (tela cheia) |
-| ⌘, | Configurações |
+| ⌘, | Configurações (preferências) |
 | ⌘/ | Lista de atalhos |
 | Esc | Sair do focus mode ou fechar o que estiver aberto |
 
@@ -144,13 +144,17 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 ## Desenvolvimento
 
 ```bash
-pnpm install
-pnpm app          # tauri dev
-pnpm app:build    # bundle .app/.dmg
-pnpm typecheck    # tsc --noEmit
-./run.sh test     # testes unitários Rust
-./run.sh test:ssh # + integração (sobe um sshd em Docker na porta 2222)
+make              # app com hot-reload (instala as dependências na primeira vez)
+make build        # bundle .app/.dmg em src-tauri/target/release/bundle/
+make install      # copia o .app para /Applications
+make check        # tsc --noEmit + cargo check
+make test         # testes unitários Rust
+make test-ssh     # + integração (sobe um sshd em Docker na porta 2222)
+make help         # lista todos os alvos
 ```
+
+O Makefile põe `~/.cargo/bin` no PATH sozinho — sem isso o `pnpm tauri dev` falha
+com "cargo: command not found" mesmo com o Rust instalado.
 
 Os testes de integração só rodam com `FS_SSH_TEST_SSH=1`; sem isso passam sem fazer nada, para não quebrar um `cargo test` em máquina sem Docker.
 

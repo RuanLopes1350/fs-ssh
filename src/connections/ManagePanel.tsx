@@ -10,6 +10,7 @@ import {
   PlayCircle,
   Plus,
   RefreshCw,
+  Settings as SettingsIcon,
   ServerCog,
   ShieldCheck,
   TerminalSquare,
@@ -22,6 +23,7 @@ import { ConfirmDialog, InputDialog, Spinner } from "../components/Dialogs";
 import { Modal } from "../components/Dialogs";
 import { api, asAppError } from "../lib/ipc";
 import { LogsView } from "../logs/LogsView";
+import { PreferencesTab } from "../components/PreferencesTab";
 import { CastPlayer } from "../recordings/CastPlayer";
 import { terminals } from "../terminal/session";
 import { useAppStore } from "../store/useAppStore";
@@ -35,7 +37,8 @@ import type {
   Theme,
 } from "../lib/types";
 
-type TabKey =
+export type TabKey =
+  | "prefs"
   | "keys"
   | "snippets"
   | "themes"
@@ -45,23 +48,34 @@ type TabKey =
   | "raw"
   | "import";
 
+/**
+ * Tela única de configuração: preferências, chaves, snippets, temas, hosts
+ * confirmados, gravações, logs e importação do `~/.ssh/config`.
+ *
+ * ⌘, abre nas preferências e ⌘⇧M nas chaves — atalhos diferentes para a mesma
+ * janela, porque manter dois lugares para "configurar o app" só fazia o usuário
+ * procurar no errado.
+ */
 export function ManagePanel({
   activeSessionId,
   activeSessionTitle,
+  initialTab = "keys",
   onClose,
 }: {
   /** Sessão da aba ativa (se aberta) — habilita "instalar chave no servidor". */
   activeSessionId: string | null;
   activeSessionTitle: string | null;
+  initialTab?: TabKey;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<TabKey>("keys");
+  const [tab, setTab] = useState<TabKey>(initialTab);
 
   return (
     <Modal
-      title="Chaves, snippets, temas, gravações e logs"
+      title="Configurações"
       wide
       tall
+      icon={<SettingsIcon size={16} color="var(--accent)" />}
       onClose={onClose}
       footer={
         <button className="btn btn--primary" onClick={onClose}>
@@ -72,6 +86,7 @@ export function ManagePanel({
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
         {(
           [
+            ["prefs", "Preferências"],
             ["keys", "Chaves"],
             ["snippets", "Snippets"],
             ["themes", "Temas"],
@@ -98,6 +113,7 @@ export function ManagePanel({
         ))}
       </div>
 
+      {tab === "prefs" && <PreferencesTab />}
       {tab === "keys" && (
         <KeysTab
           activeSessionId={activeSessionId}

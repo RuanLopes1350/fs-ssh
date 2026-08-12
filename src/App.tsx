@@ -32,10 +32,9 @@ import {
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { AuthDialog, ConfirmDialog, HostKeyDialog, Spinner } from "./components/Dialogs";
 import { ConnIcon } from "./components/Icon";
-import { SettingsDialog } from "./components/SettingsDialog";
 import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { ConnectionSheet, EMPTY_CONNECTION } from "./connections/ConnectionSheet";
-import { ManagePanel } from "./connections/ManagePanel";
+import { ManagePanel, type TabKey as ManageTab } from "./connections/ManagePanel";
 import { DockerPanel } from "./docker/DockerPanel";
 import { HistoryPanel } from "./history/HistoryPanel";
 import { api, asAppError } from "./lib/ipc";
@@ -103,8 +102,8 @@ export default function App() {
   const loadAll = useAppStore((s) => s.loadAll);
 
   const [editing, setEditing] = useState<Connection | null>(null);
-  const [managing, setManaging] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  /** Aba da tela de configurações; `null` = fechada (⌘, e ⌘⇧M abrem em abas diferentes). */
+  const [managing, setManaging] = useState<ManageTab | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   /** Quando ligado, a paleta abre listando só snippets (botão da toolbar). */
   const [paletteSnippets, setPaletteSnippets] = useState(false);
@@ -659,7 +658,7 @@ export default function App() {
         store.togglePanel("history");
       } else if ((e.key === "m" || e.key === "M") && e.shiftKey) {
         e.preventDefault();
-        setManaging((v) => !v);
+        setManaging((v) => (v ? null : "keys"));
       } else if (e.key === "d" || e.key === "D") {
         // ⌘D divide lado a lado; ⌘⇧D divide empilhado (como no iTerm).
         e.preventDefault();
@@ -696,7 +695,7 @@ export default function App() {
         void setFocus(!useAppStore.getState().focusMode);
       } else if (e.key === ",") {
         e.preventDefault();
-        setSettingsOpen((v) => !v);
+        setManaging((v) => (v ? null : "prefs"));
       } else if (e.key === "=" || e.key === "+") {
         e.preventDefault();
         store.setFontSize(store.fontSize + 1);
@@ -930,7 +929,7 @@ export default function App() {
           onDuplicate={(c) => void duplicate(c)}
           onDelete={setDeleting}
           onNew={() => setEditing({ ...EMPTY_CONNECTION })}
-          onManage={() => setManaging(true)}
+          onManage={() => setManaging("keys")}
         />
       )}
 
@@ -1218,7 +1217,7 @@ export default function App() {
               className="icon-btn"
               aria-label="Configurações (⌘,)"
               title="Configurações (⌘,)"
-              onClick={() => setSettingsOpen(true)}
+              onClick={() => setManaging("prefs")}
             >
               <SettingsIcon size={14} />
             </button>
@@ -1305,14 +1304,14 @@ export default function App() {
       </main>
 
       {editing && <ConnectionSheet initial={editing} onClose={() => setEditing(null)} />}
-      {managing && (
+      {managing !== null && (
         <ManagePanel
           activeSessionId={activePane?.status === "open" ? activePane.sessionId : null}
           activeSessionTitle={activePane?.title ?? null}
-          onClose={() => setManaging(false)}
+          initialTab={managing}
+          onClose={() => setManaging(null)}
         />
       )}
-      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
       {paletteOpen && (
         <CommandPalette

@@ -331,18 +331,30 @@ pub async fn read_all(sftp: &SftpSession, path: &str, max: u64) -> AppResult<Vec
     Ok(sftp.read(path.to_string()).await?)
 }
 
-/// Um arquivo achado por uma varredura de diretório, com o caminho relativo à
-/// raiz varrida — é a chave que casa os dois lados na comparação de pastas.
-#[derive(Debug, Clone)]
+/// Uma entrada achada por uma varredura de diretório, com o caminho relativo à
+/// raiz varrida — é a chave que casa os dois lados na comparação de pastas e o
+/// que a transferência de pasta inteira usa para remontar a árvore do outro lado.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WalkEntry {
     pub rel: String,
     pub size: u64,
     pub mtime: u64,
+    /// Só vem preenchido quando a varredura pede os diretórios (`include_dirs`).
+    pub is_dir: bool,
 }
 
 /// Percorre um diretório remoto inteiro. Iterativo, não recursivo: cada nível é
 /// um round-trip SFTP, e uma pilha explícita deixa o teto de entradas óbvio.
-pub async fn walk_remote(sftp: &SftpSession, base: &str, max: usize) -> AppResult<Vec<WalkEntry>> {
+///
+/// `include_dirs` acrescenta os diretórios à lista: a comparação de pastas só
+/// quer arquivos, mas copiar uma pasta precisa recriar a árvore vazia também.
+pub async fn walk_remote(
+    sftp: &SftpSession,
+    base: &str,
+    max: usize,
+    include_dirs: bool,
+) -> AppResult<Vec<WalkEntry>> {
     let base = sftp.canonicalize(base.to_string()).await?;
     let mut out = Vec::new();
     let mut stack = vec![String::new()];
@@ -365,12 +377,21 @@ pub async fn walk_remote(sftp: &SftpSession, base: &str, max: usize) -> AppResul
             };
             let meta = entry.metadata();
             if entry.file_type().is_dir() {
+                if include_dirs {
+                    out.push(WalkEntry {
+                        rel: rel.clone(),
+                        size: 0,
+                        mtime: meta.mtime.unwrap_or(0) as u64,
+                        is_dir: true,
+                    });
+                }
                 stack.push(rel);
             } else if entry.file_type().is_file() {
                 out.push(WalkEntry {
                     rel,
                     size: meta.size.unwrap_or(0),
                     mtime: meta.mtime.unwrap_or(0) as u64,
+                    is_dir: false,
                 });
                 if out.len() > max {
                     return Err(AppError::msg(format!(
@@ -385,7 +406,7 @@ pub async fn walk_remote(sftp: &SftpSession, base: &str, max: usize) -> AppResul
 
 /// Mesma varredura, do lado local. Links simbólicos não são seguidos: um link
 /// para `/` transformaria a comparação numa varredura do disco inteiro.
-pub fn walk_local(base: &str, max: usize) -> AppResult<Vec<WalkEntry>> {
+pub fn walk_local(base: &str, max: usize, include_dirs: bool) -> AppResult<Vec<WalkEntry>> {
     let root = Path::new(base);
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
@@ -400,7 +421,23 @@ pub fn walk_local(base: &str, max: usize) -> AppResult<Vec<WalkEntry>> {
             if meta.is_symlink() {
                 continue;
             }
+            let mtime = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
             if meta.is_dir() {
+                if include_dirs {
+                    if let Ok(rel) = path.strip_prefix(root) {
+                        out.push(WalkEntry {
+                            rel: rel.to_string_lossy().replace('\\', "/"),
+                            size: 0,
+                            mtime,
+                            is_dir: true,
+                        });
+                    }
+                }
                 stack.push(path);
                 continue;
             }
@@ -410,12 +447,8 @@ pub fn walk_local(base: &str, max: usize) -> AppResult<Vec<WalkEntry>> {
             out.push(WalkEntry {
                 rel: rel.to_string_lossy().replace('\\', "/"),
                 size: meta.len(),
-                mtime: meta
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0),
+                mtime,
+                is_dir: false,
             });
             if out.len() > max {
                 return Err(AppError::msg(format!(

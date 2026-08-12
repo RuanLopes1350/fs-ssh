@@ -35,8 +35,8 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
       ["⌘⇧S", "Sistema: carga, memória, disco, serviços, portas"],
       ["⌘⇧T", "Túneis (port forwarding)"],
       ["⌘⇧H", "Histórico de comandos (clique roda de novo)"],
-      ["⌘⇧M", "Chaves, snippets, temas, gravações e logs"],
-      ["⌘,", "Configurações"],
+      ["⌘,", "Configurações (preferências, backup do banco)"],
+      ["⌘⇧M", "Configurações na aba de chaves, temas e gravações"],
     ],
   },
   {

@@ -29,6 +29,7 @@ import type {
   SysUpdates,
   Theme,
   Transfer,
+  WalkEntry,
 } from "./types";
 
 /**
@@ -222,6 +223,11 @@ export const api = {
   sftpCancel: (transferId: string) => invoke<boolean>("sftp_cancel", { transferId }),
   sftpMkdirP: (sessionId: string, path: string) =>
     invoke<void>("sftp_mkdir_p", { sessionId, path }),
+  /** Árvore de um diretório (arquivos e subpastas) para copiar a pasta inteira. */
+  sftpTree: (sessionId: string, path: string) =>
+    invoke<WalkEntry[]>("sftp_tree", { sessionId, path }),
+  localTree: (path: string) => invoke<WalkEntry[]>("local_tree", { path }),
+  localMkdirP: (path: string) => invoke<void>("local_mkdir_p", { path }),
   sftpFind: (sessionId: string, root: string, pattern: string, maxDepth: number) =>
     invoke<string[]>("sftp_find", { sessionId, root, pattern, maxDepth }),
   sftpChecksum: (sessionId: string, remote: string, local: string) =>

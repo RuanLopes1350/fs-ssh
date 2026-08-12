@@ -185,6 +185,49 @@ export function SftpPanel({
     [sessionId],
   );
 
+  /**
+   * Pasta inteira, nos dois sentidos.
+   *
+   * A árvore vem pronta do Rust com caminhos relativos; aqui só recriamos os
+   * diretórios do outro lado (as folhas bastam — `mkdir -p` cria a corrente) e
+   * enfileiramos um arquivo por vez, para a fila mostrar progresso de verdade
+   * em vez de uma barra única que não diz onde está.
+   */
+  const transferDir = useCallback(
+    async (direction: "up" | "down", srcPath: string, name: string, intoDir: string) => {
+      try {
+        const entries =
+          direction === "up"
+            ? await api.localTree(srcPath)
+            : await api.sftpTree(sessionId, srcPath);
+        const base = join(intoDir, safeName(name));
+
+        const dirs = entries.filter((e) => e.isDir).map((e) => e.rel);
+        // Só as folhas: um diretório que é prefixo de outro já vem junto.
+        const leaves = dirs.filter((d) => !dirs.some((o) => o !== d && o.startsWith(`${d}/`)));
+        const targets = leaves.length > 0 ? leaves.map((d) => join(base, d)) : [base];
+        for (const dir of targets) {
+          if (direction === "up") await api.sftpMkdirP(sessionId, dir);
+          else await api.localMkdirP(dir);
+        }
+
+        for (const file of entries.filter((e) => !e.isDir)) {
+          useTransferQueue.getState().enqueue({
+            sessionId,
+            direction,
+            local: direction === "up" ? join(srcPath, file.rel) : join(base, file.rel),
+            remote: direction === "up" ? join(base, file.rel) : join(srcPath, file.rel),
+            label: `${name}/${file.rel}`,
+          });
+        }
+        if (entries.length === 0) setError(`${name} está vazia — só a pasta foi criada.`);
+      } catch (e) {
+        setError(asAppError(e).message);
+      }
+    },
+    [sessionId],
+  );
+
   // A listagem só faz sentido depois que a transferência termina; observar a
   // fila evita recarregar a cada bloco copiado.
   const settled = transfers.filter((t) => t.status === "done").length;
@@ -209,19 +252,22 @@ export function SftpPanel({
       const payload = dragging;
       setDragging(null);
       setDropTarget(null);
-      if (!payload || payload.dir === side || payload.isDir) return;
+      if (!payload || payload.dir === side) return;
 
-      if (side === "remote") {
-        upload(payload.path, payload.name, intoDir ?? remotePath);
+      const target = intoDir ?? (side === "remote" ? remotePath : localPath);
+      if (payload.isDir) {
+        void transferDir(side === "remote" ? "up" : "down", payload.path, payload.name, target);
+      } else if (side === "remote") {
+        upload(payload.path, payload.name, target);
       } else {
-        download(payload.path, payload.name, intoDir ?? localPath);
+        download(payload.path, payload.name, target);
       }
     },
-    [dragging, remotePath, localPath, upload, download],
+    [dragging, remotePath, localPath, upload, download, transferDir],
   );
 
   const dragProps = (payload: DragPayload) => ({
-    draggable: !payload.isDir,
+    draggable: true,
     "data-dragging": dragging?.path === payload.path,
     onDragStart: (e: React.DragEvent) => {
       setDragging(payload);
@@ -366,11 +412,20 @@ export function SftpPanel({
             />
             <button
               className="icon-btn"
-              title="Enviar para o servidor"
-              disabled={!selectedLocal || selectedLocal.kind === "dir"}
-              onClick={() =>
-                selectedLocal && upload(selectedLocal.path, selectedLocal.name, remotePath)
+              title={
+                selectedLocal?.kind === "dir"
+                  ? `Enviar a pasta ${selectedLocal.name} inteira`
+                  : "Enviar para o servidor"
               }
+              disabled={!selectedLocal}
+              onClick={() => {
+                if (!selectedLocal) return;
+                if (selectedLocal.kind === "dir") {
+                  void transferDir("up", selectedLocal.path, selectedLocal.name, remotePath);
+                } else {
+                  upload(selectedLocal.path, selectedLocal.name, remotePath);
+                }
+              }}
             >
               <ArrowUpFromLine size={14} />
             </button>
@@ -418,7 +473,9 @@ export function SftpPanel({
               })}
             </div>
             {dragging?.dir === "remote" && (
-              <div className="drop-hint">Solte para baixar em {localPath}</div>
+              <div className="drop-hint">
+                Solte para baixar{dragging.isDir ? " a pasta" : ""} em {localPath}
+              </div>
             )}
           </div>
         </div>
@@ -479,11 +536,20 @@ export function SftpPanel({
             </button>
             <button
               className="icon-btn"
-              title="Baixar"
-              disabled={!selectedRemote || selectedRemote.kind === "dir"}
-              onClick={() =>
-                selectedRemote && download(selectedRemote.path, selectedRemote.name, localPath)
+              title={
+                selectedRemote?.kind === "dir"
+                  ? `Baixar a pasta ${selectedRemote.name} inteira`
+                  : "Baixar"
               }
+              disabled={!selectedRemote}
+              onClick={() => {
+                if (!selectedRemote) return;
+                if (selectedRemote.kind === "dir") {
+                  void transferDir("down", selectedRemote.path, selectedRemote.name, localPath);
+                } else {
+                  download(selectedRemote.path, selectedRemote.name, localPath);
+                }
+              }}
             >
               <ArrowDownToLine size={14} />
             </button>
@@ -538,7 +604,9 @@ export function SftpPanel({
               })}
             </div>
             {dragging?.dir === "local" && (
-              <div className="drop-hint">Solte para enviar para {remotePath}</div>
+              <div className="drop-hint">
+                Solte para enviar{dragging.isDir ? " a pasta" : ""} para {remotePath}
+              </div>
             )}
           </div>
 
