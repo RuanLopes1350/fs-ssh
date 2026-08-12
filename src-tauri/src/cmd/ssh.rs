@@ -106,6 +106,7 @@ pub async fn ssh_connect(
         username: conn.username.clone(),
         fingerprint: connected.host_fingerprint.clone(),
         banner: connected.server_banner.clone(),
+        read_only: conn.read_only,
     };
 
     let (tx, rx) = mpsc::channel(CMD_QUEUE);
@@ -163,12 +164,36 @@ pub async fn ssh_write(
     session_id: String,
     data: Vec<u8>,
 ) -> AppResult<()> {
-    state
-        .sessions
-        .get(&session_id)
-        .await?
-        .send(SessionCmd::Write(data))
-        .await
+    state.sessions.get(&session_id).await?.write(data).await
+}
+
+/// Liga/desliga o modo somente leitura da sessão em curso.
+#[tauri::command]
+pub async fn ssh_set_read_only(
+    state: State<'_, AppState>,
+    session_id: String,
+    value: bool,
+) -> AppResult<()> {
+    let handle = state.sessions.get(&session_id).await?;
+    handle.set_read_only(value);
+
+    let name = state
+        .db
+        .get_connection(&handle.info.connection_id)
+        .map(|c| c.name)
+        .unwrap_or_else(|_| handle.info.host.clone());
+    state.db.log_event(
+        "info",
+        "readonly",
+        Some(&handle.info.connection_id),
+        &name,
+        if value {
+            "sessão travada em somente leitura"
+        } else {
+            "sessão destravada para escrita"
+        },
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -213,8 +238,10 @@ pub async fn ssh_broadcast(
     let mut failed = Vec::new();
     for id in session_ids {
         match state.sessions.get(&id).await {
+            // Sessão travada não recebe broadcast: o modo somente leitura existe
+            // justamente para o painel de produção não ser atingido por engano.
             Ok(h) => {
-                if h.send(SessionCmd::Write(data.clone())).await.is_err() {
+                if h.write(data.clone()).await.is_err() {
                     failed.push(id);
                 }
             }
@@ -252,6 +279,7 @@ pub async fn local_open(
         username: std::env::var("USER").unwrap_or_else(|_| "local".into()),
         fingerprint: String::new(),
         banner: None,
+        read_only: false,
     };
 
     state

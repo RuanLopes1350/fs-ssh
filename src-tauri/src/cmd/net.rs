@@ -112,7 +112,9 @@ pub async fn net_info(state: State<'_, AppState>, session_id: String) -> AppResu
 
 /// Quebra a saída nas marcas `##NOME`. Linhas antes da primeira marca são
 /// descartadas (banner de login, `motd` e afins caem aí).
-fn sections(text: &str) -> HashMap<&str, String> {
+///
+/// Compartilhada com o painel de sistema, que coleta do mesmo jeito.
+pub(super) fn sections(text: &str) -> HashMap<&str, String> {
     let mut map: HashMap<&str, String> = HashMap::new();
     let mut current: Option<&str> = None;
     for line in text.lines() {

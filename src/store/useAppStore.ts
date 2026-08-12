@@ -22,6 +22,8 @@ export interface Pane {
   color: string;
   icon: string;
   isProduction: boolean;
+  /** Sessão de observação: o backend recusa escrita enquanto estiver ligado. */
+  readOnly?: boolean;
   /** `empty` = painel recém-dividido mostrando o seletor de servidor. */
   status: "empty" | "connecting" | "open" | "closed";
   sessionId: string | null;
@@ -41,8 +43,8 @@ export interface Pane {
 
 export type SplitDir = "row" | "col";
 
-/** Painel lateral da sessão: arquivos, containers, rede, túneis ou histórico. */
-export type PanelKind = "sftp" | "docker" | "net" | "tunnels" | "history" | null;
+/** Painel lateral da sessão: arquivos, containers, rede, sistema, túneis ou histórico. */
+export type PanelKind = "sftp" | "docker" | "net" | "sys" | "tunnels" | "history" | null;
 
 /** Um comando digitado no terminal, guardado para ser rodado de novo. */
 export interface CommandEntry {
@@ -86,6 +88,11 @@ export interface Settings {
   dimInactivePanes: boolean;
   /** Guardar os comandos digitados no terminal (painel de histórico). */
   recordHistory: boolean;
+  /**
+   * Formato da gravação de sessão: `text` (legível) ou `cast` (asciinema, com
+   * timing e replay no player embutido).
+   */
+  recordFormat: "text" | "cast";
 }
 
 /** Conexão sintética do terminal local — nunca vai para o banco. */
@@ -103,6 +110,7 @@ export const LOCAL_CONNECTION: Connection = {
   icon: "laptop",
   themeId: null,
   isProduction: false,
+  readOnly: false,
   notes: "",
   createdAt: "",
   lastUsedAt: null,
@@ -300,6 +308,7 @@ export const useAppStore = create<AppStore>()(
         localShell: "",
         dimInactivePanes: true,
         recordHistory: true,
+        recordFormat: "text",
       },
       history: [],
       lastSessionConnectionIds: [],

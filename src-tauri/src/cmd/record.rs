@@ -24,30 +24,50 @@ pub struct Recording {
     pub size: u64,
     /// Epoch em segundos — o frontend formata.
     pub modified: u64,
+    /// `text` ou `cast` (asciinema, com timing e replay).
+    pub format: String,
 }
 
-/// Começa a gravar a saída da sessão em `recordings/<conexão>-<data>.log`.
+/// Começa a gravar a saída da sessão em `recordings/<conexão>-<data>.<ext>`.
+///
+/// `format` escolhe entre texto legível (`text`) e asciicast (`cast`); as
+/// dimensões só importam no `cast`, que as guarda no cabeçalho.
 #[tauri::command]
 pub async fn recording_start(
     state: State<'_, AppState>,
     session_id: String,
+    format: Option<String>,
+    cols: Option<u32>,
+    rows: Option<u32>,
 ) -> AppResult<String> {
     let handle = state.sessions.get(&session_id).await?;
     if let Some(existing) = handle.recording_path().await {
         return Ok(existing); // já gravando: idempotente
     }
 
+    let format = match format.as_deref() {
+        Some("cast") => "cast",
+        _ => "text",
+    };
     let name = state
         .db
         .get_connection(&handle.info.connection_id)
         .map(|c| c.name)
         .unwrap_or_else(|_| handle.info.host.clone());
     let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
-    let file = format!("{}-{stamp}.log", slug(&name));
+    let ext = if format == "cast" { "cast" } else { "log" };
+    let file = format!("{}-{stamp}.{ext}", slug(&name));
 
     let path = recordings_dir(&state.data_dir).join(file);
     let path = path.to_string_lossy().into_owned();
-    handle.set_recording(Some(path.clone())).await?;
+    handle
+        .set_recording(
+            Some(path.clone()),
+            format,
+            cols.unwrap_or(80),
+            rows.unwrap_or(24),
+        )
+        .await?;
     state.db.log_event(
         "info",
         "recording",
@@ -64,7 +84,7 @@ pub async fn recording_stop(state: State<'_, AppState>, session_id: String) -> A
         .sessions
         .get(&session_id)
         .await?
-        .set_recording(None)
+        .set_recording(None, "text", 0, 0)
         .await
 }
 
@@ -87,7 +107,8 @@ pub fn recording_list(state: State<'_, AppState>) -> AppResult<Vec<Recording>> {
     let mut out = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("log") {
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
+        if ext != "log" && ext != "cast" {
             continue;
         }
         let meta = entry.metadata()?;
@@ -95,6 +116,7 @@ pub fn recording_list(state: State<'_, AppState>) -> AppResult<Vec<Recording>> {
             name: entry.file_name().to_string_lossy().into_owned(),
             path: path.to_string_lossy().into_owned(),
             size: meta.len(),
+            format: if ext == "cast" { "cast".into() } else { "text".into() },
             modified: meta
                 .modified()
                 .ok()
@@ -124,6 +146,35 @@ pub fn recording_delete(state: State<'_, AppState>, path: String) -> AppResult<(
 #[tauri::command]
 pub fn recordings_dir_path(state: State<'_, AppState>) -> String {
     recordings_dir(&state.data_dir).to_string_lossy().into_owned()
+}
+
+/// Grava um texto no caminho escolhido pelo usuário no diálogo do sistema —
+/// exportação de sessão (HTML) e de histórico (JSON) passam por aqui.
+///
+/// O conteúdo é o que estava na tela ou no histórico: pode ter segredo, então o
+/// arquivo nasce 0600, como as gravações. O caminho vem do diálogo nativo, não
+/// do webview, e por isso não há o que sanitizar aqui além de exigir absoluto.
+#[tauri::command]
+pub fn export_text(path: String, contents: String) -> AppResult<()> {
+    use std::io::Write;
+
+    let target = Path::new(&path);
+    if !target.is_absolute() {
+        return Err(AppError::msg("caminho de exportação inválido"));
+    }
+    if let Some(dir) = target.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    opts.open(target)?.write_all(contents.as_bytes())?;
+    Ok(())
 }
 
 // ------------------------------------------------------- log de eventos (DB)

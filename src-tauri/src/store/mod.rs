@@ -69,7 +69,7 @@ impl Db {
         let mut stmt = c.prepare(
             "SELECT id, name, host, port, username, auth_method, identity_id, jump_host_id,
                     color, icon, theme_id, is_production, notes, created_at, last_used_at, use_count,
-                    folder_id
+                    folder_id, read_only
              FROM connections ORDER BY name COLLATE NOCASE",
         )?;
         let rows = stmt.query_map([], row_to_connection)?;
@@ -81,7 +81,7 @@ impl Db {
         c.query_row(
                 "SELECT id, name, host, port, username, auth_method, identity_id, jump_host_id,
                         color, icon, theme_id, is_production, notes, created_at, last_used_at, use_count,
-                        folder_id
+                        folder_id, read_only
                  FROM connections WHERE id = ?1",
                 params![id],
                 row_to_connection,
@@ -100,8 +100,9 @@ impl Db {
             tx.execute(
                 "INSERT INTO connections
                    (id, name, host, port, username, auth_method, identity_id, jump_host_id,
-                    color, icon, theme_id, is_production, notes, created_at, use_count, folder_id)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,0,?15)",
+                    color, icon, theme_id, is_production, notes, created_at, use_count, folder_id,
+                    read_only)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,0,?15,?16)",
                 params![
                     conn.id,
                     conn.name,
@@ -118,13 +119,14 @@ impl Db {
                     conn.notes,
                     conn.created_at,
                     conn.folder_id,
+                    conn.read_only as i64,
                 ],
             )?;
         } else {
             tx.execute(
                 "UPDATE connections SET name=?2, host=?3, port=?4, username=?5, auth_method=?6,
                         identity_id=?7, jump_host_id=?8, color=?9, icon=?10, theme_id=?11,
-                        is_production=?12, notes=?13, folder_id=?14
+                        is_production=?12, notes=?13, folder_id=?14, read_only=?15
                  WHERE id=?1",
                 params![
                     conn.id,
@@ -141,6 +143,7 @@ impl Db {
                     conn.is_production as i64,
                     conn.notes,
                     conn.folder_id,
+                    conn.read_only as i64,
                 ],
             )?;
         }
@@ -584,6 +587,113 @@ impl Db {
             .execute("DELETE FROM snippets WHERE id = ?1", params![id])?;
         Ok(())
     }
+
+    // ------------------------------------------------- histórico de transferências
+
+    /// Registra uma transferência encerrada. Como no `log_event`, falha de
+    /// escrita não derruba a transferência — o arquivo já chegou.
+    pub fn add_transfer(&self, mut t: Transfer) {
+        let Ok(c) = self.lock() else { return };
+        if t.id.is_empty() {
+            t.id = Uuid::new_v4().to_string();
+        }
+        let _ = c.execute(
+            "INSERT INTO transfers
+               (id, ts, connection_id, connection, direction, local, remote, bytes, total, status, error)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            params![
+                t.id,
+                now(),
+                t.connection_id,
+                t.connection,
+                t.direction,
+                t.local,
+                t.remote,
+                t.bytes,
+                t.total,
+                t.status,
+                t.error,
+            ],
+        );
+    }
+
+    pub fn list_transfers(&self, limit: i64) -> AppResult<Vec<Transfer>> {
+        let c = self.lock()?;
+        let mut stmt = c.prepare(
+            "SELECT id, ts, connection_id, connection, direction, local, remote,
+                    bytes, total, status, error
+             FROM transfers ORDER BY ts DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit.clamp(1, 5000)], |r| {
+            Ok(Transfer {
+                id: r.get(0)?,
+                ts: r.get(1)?,
+                connection_id: r.get(2)?,
+                connection: r.get(3)?,
+                direction: r.get(4)?,
+                local: r.get(5)?,
+                remote: r.get(6)?,
+                bytes: r.get(7)?,
+                total: r.get(8)?,
+                status: r.get(9)?,
+                error: r.get(10)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn clear_transfers(&self) -> AppResult<()> {
+        self.lock()?.execute("DELETE FROM transfers", [])?;
+        Ok(())
+    }
+
+    // ------------------------------------------------------ favoritos do SFTP
+
+    pub fn list_bookmarks(&self, connection_id: &str) -> AppResult<Vec<SftpBookmark>> {
+        let c = self.lock()?;
+        let mut stmt = c.prepare(
+            "SELECT id, connection_id, side, label, path FROM sftp_bookmarks
+             WHERE connection_id = ?1 ORDER BY side, label, path",
+        )?;
+        let rows = stmt.query_map(params![connection_id], |r| {
+            Ok(SftpBookmark {
+                id: r.get(0)?,
+                connection_id: r.get(1)?,
+                side: r.get(2)?,
+                label: r.get(3)?,
+                path: r.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn save_bookmark(&self, mut b: SftpBookmark) -> AppResult<SftpBookmark> {
+        if b.path.trim().is_empty() {
+            return Err(AppError::msg("caminho vazio"));
+        }
+        if !matches!(b.side.as_str(), "remote" | "local") {
+            return Err(AppError::msg(format!("lado inválido: {}", b.side)));
+        }
+        let c = self.lock()?;
+        if b.id.is_empty() {
+            b.id = Uuid::new_v4().to_string();
+        }
+        // O índice único cobre (conexão, lado, caminho): favoritar duas vezes o
+        // mesmo diretório só atualiza o rótulo.
+        c.execute(
+            "INSERT INTO sftp_bookmarks (id, connection_id, side, label, path)
+             VALUES (?1,?2,?3,?4,?5)
+             ON CONFLICT(connection_id, side, path) DO UPDATE SET label=?4",
+            params![b.id, b.connection_id, b.side, b.label, b.path],
+        )?;
+        Ok(b)
+    }
+
+    pub fn delete_bookmark(&self, id: &str) -> AppResult<()> {
+        self.lock()?
+            .execute("DELETE FROM sftp_bookmarks WHERE id = ?1", params![id])?;
+        Ok(())
+    }
 }
 
 // `Connection` colide com `rusqlite::Connection`; o alias mantém o modelo legível
@@ -609,6 +719,7 @@ fn row_to_connection(r: &Row) -> rusqlite::Result<Connection_> {
         last_used_at: r.get(14)?,
         use_count: r.get(15)?,
         folder_id: r.get(16)?,
+        read_only: r.get::<_, i64>(17)? != 0,
     })
 }
 
@@ -669,11 +780,74 @@ mod tests {
             icon: "server".into(),
             theme_id: None,
             is_production: false,
+            read_only: false,
             notes: String::new(),
             created_at: String::new(),
             last_used_at: None,
             use_count: 0,
         }
+    }
+
+    #[test]
+    fn historico_de_transferencias_guarda_o_desfecho() {
+        let db = db();
+        let conn = db.save_connection(connection(None)).unwrap();
+
+        for (direction, status) in [("up", "done"), ("down", "cancelled"), ("down", "error")] {
+            db.add_transfer(Transfer {
+                id: String::new(),
+                ts: String::new(),
+                connection_id: Some(conn.id.clone()),
+                connection: conn.name.clone(),
+                direction: direction.into(),
+                local: "/tmp/a.bin".into(),
+                remote: "/srv/a.bin".into(),
+                bytes: 1024,
+                total: 2048,
+                status: status.into(),
+                error: String::new(),
+            });
+        }
+
+        let list = db.list_transfers(10).unwrap();
+        assert_eq!(list.len(), 3);
+        assert!(list.iter().any(|t| t.status == "cancelled"));
+        // Cada linha ganha id e carimbo de tempo próprios.
+        assert!(list.iter().all(|t| !t.id.is_empty() && !t.ts.is_empty()));
+
+        db.clear_transfers().unwrap();
+        assert!(db.list_transfers(10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn favoritar_o_mesmo_diretorio_duas_vezes_so_atualiza_o_rotulo() {
+        let db = db();
+        let conn = db.save_connection(connection(None)).unwrap();
+        let mark = |label: &str| SftpBookmark {
+            id: String::new(),
+            connection_id: conn.id.clone(),
+            side: "remote".into(),
+            label: label.into(),
+            path: "/var/www".into(),
+        };
+
+        db.save_bookmark(mark("www")).unwrap();
+        db.save_bookmark(mark("site")).unwrap();
+
+        let list = db.list_bookmarks(&conn.id).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].label, "site");
+
+        // Lado inválido não entra no banco.
+        assert!(db
+            .save_bookmark(SftpBookmark {
+                side: "outro".into(),
+                ..mark("x")
+            })
+            .is_err());
+
+        db.delete_bookmark(&list[0].id).unwrap();
+        assert!(db.list_bookmarks(&conn.id).unwrap().is_empty());
     }
 
     /// Regressão: a varredura de chaves roda a cada `loadAll()`. Se ela apagar e

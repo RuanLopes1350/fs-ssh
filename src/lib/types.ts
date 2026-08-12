@@ -73,6 +73,8 @@ export interface Connection {
   icon: string;
   themeId: string | null;
   isProduction: boolean;
+  /** Abre a sessão travada para escrita — só olhar, sem digitar. */
+  readOnly: boolean;
   notes: string;
   createdAt: string;
   lastUsedAt: string | null;
@@ -86,6 +88,8 @@ export interface SessionInfo {
   username: string;
   fingerprint: string;
   banner: string | null;
+  /** Sessão aberta em modo somente leitura (vem da conexão). */
+  readOnly: boolean;
 }
 
 export interface SessionClosed {
@@ -136,6 +140,8 @@ export interface Progress {
   total: number;
   done: boolean;
   error: string | null;
+  /** Interrompida a pedido (pausa): o que chegou fica, e a retomada continua. */
+  cancelled: boolean;
 }
 
 export interface SshConfigHost {
@@ -222,6 +228,8 @@ export interface Recording {
   size: number;
   /** Epoch em segundos. */
   modified: number;
+  /** `text` (legível) ou `cast` (asciinema, com replay). */
+  format: "text" | "cast";
 }
 
 export interface AutostartResult {
@@ -273,6 +281,104 @@ export interface NetInfo {
   gateways: NetRoute[];
   dns: string[];
   search: string[];
+}
+
+/** Uma transferência encerrada, como fica no histórico do banco. */
+export interface Transfer {
+  id: string;
+  ts: string;
+  connectionId: string | null;
+  connection: string;
+  direction: "up" | "down";
+  local: string;
+  remote: string;
+  bytes: number;
+  total: number;
+  /** done | error | cancelled */
+  status: string;
+  error: string;
+}
+
+export interface SftpBookmark {
+  id: string;
+  connectionId: string;
+  side: "remote" | "local";
+  label: string;
+  path: string;
+}
+
+export interface Checksum {
+  remote: string;
+  local: string;
+  equal: boolean;
+}
+
+/** Uma diferença entre a pasta local e a remota. */
+export interface DiffEntry {
+  rel: string;
+  status: "onlyLocal" | "onlyRemote" | "differs" | "equal";
+  localSize: number;
+  remoteSize: number;
+  localMtime: number;
+  remoteMtime: number;
+}
+
+export interface SysDisk {
+  filesystem: string;
+  mount: string;
+  total: number;
+  used: number;
+  percent: number;
+}
+
+/** Retrato do host: carga, memória, disco e o de sempre do `uptime`. */
+export interface SysOverview {
+  os: string;
+  kernel: string;
+  uptimeSecs: number;
+  /** Carga de 1, 5 e 15 minutos. */
+  load: number[];
+  cpuCount: number;
+  /** `null` quando o host não deu como medir. */
+  cpuPercent: number | null;
+  memTotal: number;
+  memUsed: number;
+  swapTotal: number;
+  swapUsed: number;
+  disks: SysDisk[];
+}
+
+export interface SysService {
+  unit: string;
+  /** active | inactive | failed | activating… */
+  active: string;
+  /** running | exited | dead… */
+  sub: string;
+  description: string;
+  enabled: boolean;
+}
+
+export interface SysProcess {
+  pid: number;
+  user: string;
+  cpu: number;
+  mem: number;
+  elapsed: string;
+  command: string;
+}
+
+export interface SysPort {
+  proto: string;
+  address: string;
+  port: number;
+  process: string;
+  pid: number | null;
+}
+
+export interface SysUpdates {
+  manager: string;
+  packages: string[];
+  rebootRequired: boolean;
 }
 
 /** Evento `edit-saved`: o watcher do "editar localmente" gravou no servidor. */

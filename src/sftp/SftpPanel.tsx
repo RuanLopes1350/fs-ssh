@@ -5,30 +5,39 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   ChevronUp,
+  FileArchive,
   File as FileIcon,
   FolderPlus,
   Folder,
+  GitCompare,
+  History,
   Link2,
   Lock,
+  PackageOpen,
+  Pause,
   Pencil,
+  Play,
   RefreshCw,
+  Search,
+  ShieldCheck,
+  Star,
   Trash2,
+  X,
 } from "lucide-react";
 import { openPath } from "@tauri-apps/plugin-opener";
 
 import { ConfirmDialog, InputDialog, Modal, Spinner } from "../components/Dialogs";
-import { api, asAppError, Channel } from "../lib/ipc";
-import type { EditSaved, LocalEntry, Progress, RemoteEntry } from "../lib/types";
-
-interface Transfer {
-  id: number;
-  label: string;
-  direction: "up" | "down";
-  transferred: number;
-  total: number;
-  done: boolean;
-  error: string | null;
-}
+import { api, asAppError } from "../lib/ipc";
+import type {
+  Checksum,
+  DiffEntry,
+  EditSaved,
+  LocalEntry,
+  RemoteEntry,
+  SftpBookmark,
+  Transfer,
+} from "../lib/types";
+import { useTransferQueue } from "./queue";
 
 /** Carga arrastada. `dir` diz de qual painel o item saiu. */
 interface DragPayload {
@@ -41,21 +50,25 @@ interface DragPayload {
 const MIME = "application/x-fs-ssh-entry";
 const ROW_HEIGHT = 24;
 
-let transferSeq = 0;
-
 /** Nome vindo de fora nunca vira caminho com separador (defesa extra à do Rust). */
 function safeName(name: string) {
   return name.replaceAll("/", "_").replaceAll("\\", "_");
 }
 
-export function SftpPanel({ sessionId }: { sessionId: string }) {
+export function SftpPanel({
+  sessionId,
+  connectionId,
+}: {
+  sessionId: string;
+  /** Favoritos de diretório são por conexão, não por sessão. */
+  connectionId: string;
+}) {
   const [remotePath, setRemotePath] = useState<string>("");
   const [remote, setRemote] = useState<RemoteEntry[]>([]);
   const [localPath, setLocalPath] = useState<string>("");
   const [local, setLocal] = useState<LocalEntry[]>([]);
   const [selRemote, setSelRemote] = useState<string | null>(null);
   const [selLocal, setSelLocal] = useState<string | null>(null);
-  const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loadingRemote, setLoadingRemote] = useState(true);
   const [loadingLocal, setLoadingLocal] = useState(true);
@@ -68,6 +81,28 @@ export function SftpPanel({ sessionId }: { sessionId: string }) {
   const [dragging, setDragging] = useState<DragPayload | null>(null);
   /** Alvo destacado: `local`/`remote` para o painel, ou o caminho de um diretório. */
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+  const [finding, setFinding] = useState(false);
+  const [archiving, setArchiving] = useState<"compress" | null>(null);
+  const [checksum, setChecksum] = useState<{ remote: string; local: string } | null>(null);
+  const [diffing, setDiffing] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [bookmarks, setBookmarks] = useState<SftpBookmark[]>([]);
+
+  const queue = useTransferQueue();
+  const transfers = queue.items.filter((t) => t.sessionId === sessionId);
+
+  const loadBookmarks = useCallback(async () => {
+    try {
+      setBookmarks(await api.bookmarkList(connectionId));
+    } catch {
+      // Favorito é conveniência: banco indisponível não pode derrubar o painel.
+    }
+  }, [connectionId]);
+
+  useEffect(() => {
+    void loadBookmarks();
+  }, [loadBookmarks]);
 
   const loadRemote = useCallback(
     async (path: string) => {
@@ -117,71 +152,50 @@ export function SftpPanel({ sessionId }: { sessionId: string }) {
     const un = listen<EditSaved>("edit-saved", (e) => {
       if (e.payload.sessionId !== sessionId) return;
       const name = e.payload.remote.split("/").pop() ?? e.payload.remote;
-      const id = ++transferSeq;
-      setTransfers((t) => [
-        {
-          id,
-          label: name,
-          direction: "up",
-          transferred: 1,
-          total: 1,
-          done: true,
-          error: e.payload.ok ? null : (e.payload.error ?? "falha ao salvar"),
-        },
-        ...t.slice(0, 19),
-      ]);
+      setError(e.payload.ok ? null : (e.payload.error ?? `falha ao salvar ${name}`));
     });
     return () => {
       void un.then((f) => f());
     };
   }, [sessionId]);
 
-  const track = (label: string, direction: "up" | "down") => {
-    const id = ++transferSeq;
-    setTransfers((t) => [
-      { id, label, direction, transferred: 0, total: 0, done: false, error: null },
-      ...t.slice(0, 19),
-    ]);
-    const channel = new Channel<Progress>();
-    channel.onmessage = (p) => {
-      setTransfers((t) =>
-        t.map((x) =>
-          x.id === id
-            ? { ...x, transferred: p.transferred, total: p.total, done: p.done, error: p.error }
-            : x,
-        ),
-      );
-    };
-    return { id, channel };
-  };
-
   const download = useCallback(
-    async (remoteFile: string, name: string, intoDir: string) => {
-      const target = join(intoDir, safeName(name));
-      const { channel } = track(name, "down");
-      try {
-        await api.sftpDownload(sessionId, remoteFile, target, true, channel);
-        await loadLocal(intoDir === localPath ? localPath : intoDir);
-      } catch (e) {
-        setError(asAppError(e).message);
-      }
+    (remoteFile: string, name: string, intoDir: string) => {
+      useTransferQueue.getState().enqueue({
+        sessionId,
+        direction: "down",
+        remote: remoteFile,
+        local: join(intoDir, safeName(name)),
+        label: name,
+      });
     },
-    [sessionId, localPath, loadLocal],
+    [sessionId],
   );
 
   const upload = useCallback(
-    async (localFile: string, name: string, intoDir: string) => {
-      const target = join(intoDir, safeName(name));
-      const { channel } = track(name, "up");
-      try {
-        await api.sftpUpload(sessionId, localFile, target, true, channel);
-        await loadRemote(remotePath);
-      } catch (e) {
-        setError(asAppError(e).message);
-      }
+    (localFile: string, name: string, intoDir: string) => {
+      useTransferQueue.getState().enqueue({
+        sessionId,
+        direction: "up",
+        local: localFile,
+        remote: join(intoDir, safeName(name)),
+        label: name,
+      });
     },
-    [sessionId, remotePath, loadRemote],
+    [sessionId],
   );
+
+  // A listagem só faz sentido depois que a transferência termina; observar a
+  // fila evita recarregar a cada bloco copiado.
+  const settled = transfers.filter((t) => t.status === "done").length;
+  useEffect(() => {
+    if (settled === 0) return;
+    void loadRemote(remotePath);
+    void loadLocal(localPath);
+    // Recarregar os dois lados a cada conclusão basta; caminho é dependência
+    // estável aqui (mudou de pasta, a própria navegação já recarregou).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settled]);
 
   /**
    * Resolve a soltura.
@@ -198,9 +212,9 @@ export function SftpPanel({ sessionId }: { sessionId: string }) {
       if (!payload || payload.dir === side || payload.isDir) return;
 
       if (side === "remote") {
-        void upload(payload.path, payload.name, intoDir ?? remotePath);
+        upload(payload.path, payload.name, intoDir ?? remotePath);
       } else {
-        void download(payload.path, payload.name, intoDir ?? localPath);
+        download(payload.path, payload.name, intoDir ?? localPath);
       }
     },
     [dragging, remotePath, localPath, upload, download],
@@ -269,6 +283,36 @@ export function SftpPanel({ sessionId }: { sessionId: string }) {
     }
   };
 
+  const extract = async (name: string) => {
+    try {
+      await api.sftpArchive(sessionId, remotePath, "extract", name, []);
+      await loadRemote(remotePath);
+      setError(null);
+    } catch (e) {
+      setError(asAppError(e).message);
+    }
+  };
+
+  /** Envia (ou baixa) tudo que a comparação apontou como diferente. */
+  const sync = async (entries: DiffEntry[], direction: "up" | "down") => {
+    for (const e of entries) {
+      const localFile = join(localPath, e.rel);
+      const remoteFile = join(remotePath, e.rel);
+      if (direction === "up") {
+        // O destino pode estar em subpasta que ainda não existe no servidor.
+        const dir = parent(remoteFile);
+        if (dir !== remotePath) await api.sftpMkdirP(sessionId, dir).catch(() => {});
+      }
+      useTransferQueue.getState().enqueue({
+        sessionId,
+        direction,
+        local: localFile,
+        remote: remoteFile,
+        label: e.rel,
+      });
+    }
+  };
+
   const selectedRemote = remote.find((r) => r.path === selRemote);
   const selectedLocal = local.find((l) => l.path === selLocal);
 
@@ -312,12 +356,20 @@ export function SftpPanel({ sessionId }: { sessionId: string }) {
               {localPath}
             </span>
             {loadingLocal && <Spinner />}
+            <BookmarkButton
+              side="local"
+              path={localPath}
+              connectionId={connectionId}
+              bookmarks={bookmarks}
+              onGo={(p) => void loadLocal(p)}
+              onChanged={loadBookmarks}
+            />
             <button
               className="icon-btn"
               title="Enviar para o servidor"
               disabled={!selectedLocal || selectedLocal.kind === "dir"}
               onClick={() =>
-                selectedLocal && void upload(selectedLocal.path, selectedLocal.name, remotePath)
+                selectedLocal && upload(selectedLocal.path, selectedLocal.name, remotePath)
               }
             >
               <ArrowUpFromLine size={14} />
@@ -385,6 +437,36 @@ export function SftpPanel({ sessionId }: { sessionId: string }) {
               {remotePath}
             </span>
             {loadingRemote && <Spinner />}
+            <BookmarkButton
+              side="remote"
+              path={remotePath}
+              connectionId={connectionId}
+              bookmarks={bookmarks}
+              onGo={(p) => void loadRemote(p)}
+              onChanged={loadBookmarks}
+            />
+            <button
+              className="icon-btn"
+              title="Procurar arquivos neste diretório (find)"
+              onClick={() => setFinding(true)}
+            >
+              <Search size={14} />
+            </button>
+            <button
+              className="icon-btn"
+              title="Comparar esta pasta com a pasta local (prévia da sincronização)"
+              onClick={() => setDiffing(true)}
+            >
+              <GitCompare size={14} />
+            </button>
+            <button
+              className="icon-btn"
+              title="Compactar a seleção no servidor (tar.gz)"
+              disabled={!selRemote}
+              onClick={() => setArchiving("compress")}
+            >
+              <FileArchive size={14} />
+            </button>
             <button className="icon-btn" title="Novo diretório" onClick={() => setMkdirOpen(true)}>
               <FolderPlus size={14} />
             </button>
@@ -400,8 +482,7 @@ export function SftpPanel({ sessionId }: { sessionId: string }) {
               title="Baixar"
               disabled={!selectedRemote || selectedRemote.kind === "dir"}
               onClick={() =>
-                selectedRemote &&
-                void download(selectedRemote.path, selectedRemote.name, localPath)
+                selectedRemote && download(selectedRemote.path, selectedRemote.name, localPath)
               }
             >
               <ArrowDownToLine size={14} />
@@ -479,6 +560,29 @@ export function SftpPanel({ sessionId }: { sessionId: string }) {
                   <Pencil size={14} />
                 </button>
               )}
+              {isArchive(selectedRemote.name) && (
+                <button
+                  className="icon-btn"
+                  title={`Extrair ${selectedRemote.name} no servidor`}
+                  onClick={() => void extract(selectedRemote.name)}
+                >
+                  <PackageOpen size={14} />
+                </button>
+              )}
+              {selectedRemote.kind === "file" && (
+                <button
+                  className="icon-btn"
+                  title={`Conferir SHA-256 contra ${join(localPath, selectedRemote.name)}`}
+                  onClick={() =>
+                    setChecksum({
+                      remote: selectedRemote.path,
+                      local: join(localPath, selectedRemote.name),
+                    })
+                  }
+                >
+                  <ShieldCheck size={14} />
+                </button>
+              )}
               <button
                 className="icon-btn"
                 title="Renomear"
@@ -505,36 +609,106 @@ export function SftpPanel({ sessionId }: { sessionId: string }) {
         </div>
       </div>
 
-      {transfers.length > 0 && (
+      {(transfers.length > 0 || showHistory) && (
         <div className="transfers">
+          <div className="transfers__head">
+            <span className="muted">
+              {transfers.length > 0
+                ? `${transfers.filter((t) => t.status === "running").length} em curso · ${transfers.length} na fila`
+                : "Fila vazia"}
+            </span>
+            <button
+              className="icon-btn"
+              data-active={showHistory}
+              title="Histórico de transferências"
+              onClick={() => setShowHistory((v) => !v)}
+            >
+              <History size={13} />
+            </button>
+            <button
+              className="icon-btn"
+              title="Limpar o que já terminou"
+              onClick={() => queue.clearFinished()}
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+
           {transfers.map((t) => (
             <div key={t.id} className="transfer">
-              <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 {t.direction === "up" ? (
                   <ArrowUpFromLine size={11} />
                 ) : (
                   <ArrowDownToLine size={11} />
                 )}
-                <span className="file__name">{t.label}</span>
-                <span className="muted">
+                <span className="file__name" title={t.direction === "up" ? t.remote : t.local}>
+                  {t.label}
+                </span>
+                <span className="muted" style={{ flex: 1, textAlign: "right" }}>
                   {t.error
                     ? t.error
-                    : t.done
+                    : t.status === "done"
                       ? "concluído"
-                      : `${humanSize(t.transferred)} / ${humanSize(t.total)}`}
+                      : t.status === "queued"
+                        ? "na fila"
+                        : t.status === "paused"
+                          ? `pausado em ${humanSize(t.transferred)}`
+                          : `${humanSize(t.transferred)} / ${humanSize(t.total)}`}
                 </span>
+                {(t.status === "running" || t.status === "queued") && (
+                  <button
+                    className="icon-btn"
+                    title="Pausar (retomar continua de onde parou)"
+                    onClick={() => queue.pause(t.id)}
+                  >
+                    <Pause size={12} />
+                  </button>
+                )}
+                {(t.status === "paused" || t.status === "error") && (
+                  <button
+                    className="icon-btn"
+                    title={t.status === "error" ? "Tentar de novo" : "Retomar"}
+                    onClick={() => queue.resume(t.id)}
+                  >
+                    <Play size={12} />
+                  </button>
+                )}
+                <button
+                  className="icon-btn"
+                  title="Tirar da fila"
+                  onClick={() => queue.remove(t.id)}
+                >
+                  <X size={12} />
+                </button>
               </div>
               <div className="progress">
                 <div
                   style={{
                     width: `${t.total ? Math.min(100, (t.transferred / t.total) * 100) : 0}%`,
-                    background: t.error ? "var(--danger)" : undefined,
+                    background: t.error
+                      ? "var(--danger)"
+                      : t.status === "paused"
+                        ? "var(--warn)"
+                        : undefined,
                   }}
                 />
               </div>
             </div>
           ))}
+
+          {showHistory && <TransferHistory />}
         </div>
+      )}
+
+      {transfers.length === 0 && !showHistory && (
+        <button
+          className="transfers__toggle"
+          title="Histórico de transferências"
+          onClick={() => setShowHistory(true)}
+        >
+          <History size={12} /> Histórico de transferências
+        </button>
       )}
 
       {mkdirOpen && (
@@ -608,6 +782,66 @@ export function SftpPanel({ sessionId }: { sessionId: string }) {
         />
       )}
 
+      {finding && (
+        <FindDialog
+          sessionId={sessionId}
+          root={remotePath}
+          onGo={(path) => {
+            setFinding(false);
+            void loadRemote(parent(path));
+            setSelRemote(path);
+          }}
+          onClose={() => setFinding(false)}
+        />
+      )}
+
+      {archiving === "compress" && selectedRemote && (
+        <InputDialog
+          title="Compactar no servidor"
+          label={`tar.gz de ${selectedRemote.name} em ${remotePath}`}
+          initial={`${selectedRemote.name}.tar.gz`}
+          confirmLabel="Compactar"
+          onSubmit={(name) => {
+            const entry = selectedRemote;
+            setArchiving(null);
+            void (async () => {
+              try {
+                await api.sftpArchive(sessionId, remotePath, "compress", safeName(name), [
+                  entry.name,
+                ]);
+                await loadRemote(remotePath);
+                setError(null);
+              } catch (e) {
+                setError(asAppError(e).message);
+              }
+            })();
+          }}
+          onCancel={() => setArchiving(null)}
+        />
+      )}
+
+      {checksum && (
+        <ChecksumDialog
+          sessionId={sessionId}
+          remote={checksum.remote}
+          local={checksum.local}
+          onClose={() => setChecksum(null)}
+        />
+      )}
+
+      {diffing && (
+        <DiffDialog
+          sessionId={sessionId}
+          localDir={localPath}
+          remoteDir={remotePath}
+          onSync={(entries, direction) => {
+            setDiffing(false);
+            void sync(entries, direction);
+          }}
+          onClose={() => setDiffing(false)}
+        />
+      )}
+
       {chmoding && (
         <ChmodDialog
           entry={chmoding}
@@ -628,6 +862,384 @@ export function SftpPanel({ sessionId }: { sessionId: string }) {
       )}
     </div>
   );
+}
+
+/** Estrela do diretório atual + atalho para os já favoritados. */
+function BookmarkButton({
+  side,
+  path,
+  connectionId,
+  bookmarks,
+  onGo,
+  onChanged,
+}: {
+  side: "remote" | "local";
+  path: string;
+  connectionId: string;
+  bookmarks: SftpBookmark[];
+  onGo: (path: string) => void;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const mine = bookmarks.filter((b) => b.side === side);
+  const current = mine.find((b) => b.path === path);
+
+  const toggle = async () => {
+    try {
+      if (current) await api.bookmarkDelete(current.id);
+      else await api.bookmarkSave({ connectionId, side, path, label: path.split("/").pop() || path });
+      onChanged();
+    } catch {
+      // Sem favorito o painel segue igual; não vale um alerta.
+    }
+  };
+
+  return (
+    <span style={{ position: "relative", display: "inline-flex" }}>
+      <button
+        className="icon-btn"
+        title={current ? "Tirar dos favoritos" : "Favoritar este diretório"}
+        onClick={() => void toggle()}
+      >
+        <Star size={14} fill={current ? "currentColor" : "none"} />
+      </button>
+      {mine.length > 0 && (
+        <button
+          className="icon-btn"
+          title="Ir para um favorito"
+          data-active={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <ChevronUp size={14} style={{ transform: "rotate(180deg)" }} />
+        </button>
+      )}
+      {open && (
+        <div className="bookmarks" onMouseLeave={() => setOpen(false)}>
+          {mine.map((b) => (
+            <button
+              key={b.id}
+              className="bookmarks__item"
+              title={b.path}
+              onClick={() => {
+                setOpen(false);
+                onGo(b.path);
+              }}
+            >
+              {b.label || b.path}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+/** Busca por nome no servidor (`find -iname`), com o resultado navegável. */
+function FindDialog({
+  sessionId,
+  root,
+  onGo,
+  onClose,
+}: {
+  sessionId: string;
+  root: string;
+  onGo: (path: string) => void;
+  onClose: () => void;
+}) {
+  const [pattern, setPattern] = useState("");
+  const [depth, setDepth] = useState(6);
+  const [results, setResults] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const search = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setResults(await api.sftpFind(sessionId, root, pattern, depth));
+    } catch (e) {
+      setError(asAppError(e).message);
+      setResults(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Procurar no servidor"
+      icon={<Search size={16} color="var(--accent)" />}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Fechar
+          </button>
+          <button className="btn btn--primary" disabled={busy} onClick={() => void search()}>
+            Procurar
+          </button>
+        </>
+      }
+    >
+      <div className="field">
+        <label>Nome contém</label>
+        <input
+          autoFocus
+          value={pattern}
+          placeholder="nginx.conf, *.log"
+          onChange={(e) => setPattern(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && void search()}
+        />
+      </div>
+      <div className="field">
+        <label>Profundidade a partir de {root}</label>
+        <select value={depth} onChange={(e) => setDepth(Number(e.target.value))}>
+          {[1, 2, 4, 6, 10, 20].map((d) => (
+            <option key={d} value={d}>
+              {d} {d === 1 ? "nível" : "níveis"}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {error && <div className="alert alert--warn">{error}</div>}
+      {busy && <Spinner />}
+      {results && (
+        <div className="find__results">
+          {results.length === 0 && <span className="muted">Nada encontrado.</span>}
+          {results.map((p) => (
+            <button key={p} className="find__item" title={p} onClick={() => onGo(p)}>
+              {p}
+            </button>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/** Conferência de cópia: SHA-256 das duas pontas, lado a lado. */
+function ChecksumDialog({
+  sessionId,
+  remote,
+  local,
+  onClose,
+}: {
+  sessionId: string;
+  remote: string;
+  local: string;
+  onClose: () => void;
+}) {
+  const [result, setResult] = useState<Checksum | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setResult(await api.sftpChecksum(sessionId, remote, local));
+      } catch (e) {
+        setError(asAppError(e).message);
+      }
+    })();
+  }, [sessionId, remote, local]);
+
+  return (
+    <Modal
+      title="Conferir cópia (SHA-256)"
+      icon={<ShieldCheck size={16} color="var(--accent)" />}
+      onClose={onClose}
+      footer={
+        <button className="btn btn--primary" onClick={onClose}>
+          Fechar
+        </button>
+      }
+    >
+      <div className="muted" style={{ fontSize: 11 }}>
+        O hash remoto é calculado no próprio servidor; só ele trafega.
+      </div>
+      {error && <div className="alert alert--warn">{error}</div>}
+      {!result && !error && <Spinner />}
+      {result && (
+        <>
+          <div
+            className={result.equal ? "alert" : "alert alert--danger"}
+            style={{ borderColor: result.equal ? "var(--ok)" : undefined }}
+          >
+            {result.equal ? "Os dois arquivos são idênticos." : "Os arquivos são diferentes."}
+          </div>
+          <div className="field">
+            <label>Remoto — {remote}</label>
+            <code className="hash">{result.remote}</code>
+          </div>
+          <div className="field">
+            <label>Local — {local}</label>
+            <code className="hash">{result.local}</code>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+const DIFF_LABEL: Record<DiffEntry["status"], string> = {
+  onlyLocal: "só local",
+  onlyRemote: "só remoto",
+  differs: "diferente",
+  equal: "igual",
+};
+
+/** Prévia da sincronização: o que difere entre a pasta local e a remota. */
+function DiffDialog({
+  sessionId,
+  localDir,
+  remoteDir,
+  onSync,
+  onClose,
+}: {
+  sessionId: string;
+  localDir: string;
+  remoteDir: string;
+  onSync: (entries: DiffEntry[], direction: "up" | "down") => void;
+  onClose: () => void;
+}) {
+  const [entries, setEntries] = useState<DiffEntry[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setEntries(await api.sftpDiff(sessionId, localDir, remoteDir));
+      } catch (e) {
+        setError(asAppError(e).message);
+      }
+    })();
+  }, [sessionId, localDir, remoteDir]);
+
+  const toUpload = (entries ?? []).filter(
+    (e) => e.status === "onlyLocal" || e.status === "differs",
+  );
+  const toDownload = (entries ?? []).filter(
+    (e) => e.status === "onlyRemote" || e.status === "differs",
+  );
+  const different = (entries ?? []).filter((e) => e.status !== "equal");
+
+  return (
+    <Modal
+      title="Comparar pastas"
+      wide
+      icon={<GitCompare size={16} color="var(--accent)" />}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Fechar
+          </button>
+          <button
+            className="btn"
+            disabled={toDownload.length === 0}
+            onClick={() => onSync(toDownload, "down")}
+          >
+            Baixar {toDownload.length} para o local
+          </button>
+          <button
+            className="btn btn--primary"
+            disabled={toUpload.length === 0}
+            onClick={() => onSync(toUpload, "up")}
+          >
+            Enviar {toUpload.length} para o servidor
+          </button>
+        </>
+      }
+    >
+      <div className="muted" style={{ fontSize: 11 }}>
+        {localDir} ↔ {remoteDir} — comparação por tamanho e data, recursiva. A cópia entra na
+        fila; nada é apagado dos dois lados.
+      </div>
+      {error && <div className="alert alert--warn">{error}</div>}
+      {!entries && !error && <Spinner />}
+      {entries && different.length === 0 && (
+        <div className="alert" style={{ borderColor: "var(--ok)" }}>
+          As duas pastas estão iguais ({entries.length} arquivos).
+        </div>
+      )}
+      {entries && different.length > 0 && (
+        <div className="find__results">
+          {different.map((e) => (
+            <div key={e.rel} className="diff__row" title={e.rel}>
+              <span className={`diff__tag diff__tag--${e.status}`}>{DIFF_LABEL[e.status]}</span>
+              <span className="file__name">{e.rel}</span>
+              <span className="muted">
+                {e.status === "onlyRemote"
+                  ? humanSize(e.remoteSize)
+                  : e.status === "onlyLocal"
+                    ? humanSize(e.localSize)
+                    : `${humanSize(e.localSize)} ↔ ${humanSize(e.remoteSize)}`}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/** Últimas transferências gravadas no banco — sobrevive ao fechar do painel. */
+function TransferHistory() {
+  const [items, setItems] = useState<Transfer[]>([]);
+
+  const load = useCallback(async () => {
+    try {
+      setItems(await api.transferList(100));
+    } catch {
+      setItems([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <div className="transfers__history">
+      <div className="transfers__head">
+        <span className="muted">Histórico ({items.length})</span>
+        <button className="icon-btn" title="Recarregar" onClick={() => void load()}>
+          <RefreshCw size={12} />
+        </button>
+        <button
+          className="icon-btn"
+          title="Apagar o histórico"
+          onClick={() => void api.transferClear().then(load)}
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
+      {items.length === 0 && <span className="muted">Nada transferido ainda.</span>}
+      {items.map((t) => (
+        <div key={t.id} className="transfers__row" title={`${t.local}\n${t.remote}`}>
+          {t.direction === "up" ? <ArrowUpFromLine size={11} /> : <ArrowDownToLine size={11} />}
+          <span className="file__name">{(t.direction === "up" ? t.remote : t.local).split("/").pop()}</span>
+          <span className="muted">{t.connection}</span>
+          <span
+            className="muted"
+            style={{ color: t.status === "error" ? "var(--danger)" : undefined }}
+          >
+            {t.status === "done"
+              ? humanSize(t.bytes)
+              : t.status === "cancelled"
+                ? "pausado"
+                : t.error || "erro"}
+          </span>
+          <span className="muted">{new Date(t.ts).toLocaleString("pt-BR")}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Extensões que o `sftp_archive` sabe extrair. */
+function isArchive(name: string) {
+  return /\.(tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz|tar|zip|gz)$/i.test(name);
 }
 
 const CHMOD_ROWS = [

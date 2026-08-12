@@ -183,8 +183,8 @@ async fn run_local_session(
                         });
                     }
                 }
-                Some(SessionCmd::Record { path, reply }) => {
-                    let _ = reply.send(recorder.set(path));
+                Some(SessionCmd::Record { path, format, cols, rows, reply }) => {
+                    let _ = reply.send(recorder.set(path, &format, cols, rows));
                 }
                 // Exec vale para a própria máquina: é o que faz o painel de
                 // containers funcionar no terminal local. Roda fora do PTY,

@@ -27,6 +27,10 @@ pub struct SessionInfo {
     pub username: String,
     pub fingerprint: String,
     pub banner: Option<String>,
+    /// Sessão de observação: entra, olha, não digita. Vem marcada da conexão e
+    /// pode ser destravada em tempo de execução.
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 /// Um túnel ligado nesta sessão.
@@ -51,6 +55,10 @@ pub struct SessionHandle {
     forwards: Mutex<HashMap<String, ActiveForward>>,
     /// Caminho da gravação em andamento, se houver.
     recording: Mutex<Option<String>>,
+    /// Trava de escrita do modo somente leitura. Fica no backend de propósito:
+    /// terminal, broadcast, snippets e histórico entram todos pelo mesmo
+    /// `ssh_write`, então uma checagem só cobre todos os caminhos.
+    read_only: std::sync::atomic::AtomicBool,
 }
 
 impl SessionHandle {
@@ -59,11 +67,30 @@ impl SessionHandle {
         !self.tx.is_closed()
     }
 
+    pub fn is_read_only(&self) -> bool {
+        self.read_only.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn set_read_only(&self, value: bool) {
+        self.read_only
+            .store(value, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub async fn send(&self, cmd: SessionCmd) -> AppResult<()> {
         self.tx
             .send(cmd)
             .await
             .map_err(|_| AppError::msg("sessão encerrada"))
+    }
+
+    /// Envia teclado/texto à sessão, respeitando o modo somente leitura.
+    pub async fn write(&self, data: Vec<u8>) -> AppResult<()> {
+        if self.is_read_only() {
+            return Err(AppError::msg(
+                "sessão em modo somente leitura — destrave no cadeado da barra para digitar",
+            ));
+        }
+        self.send(SessionCmd::Write(data)).await
     }
 
     /// Roda um comando num canal exec separado e espera a saída completa.
@@ -96,12 +123,22 @@ impl SessionHandle {
         self.recording.lock().await.clone()
     }
 
-    /// Liga a gravação em `path` ou desliga (`None`).
-    pub async fn set_recording(&self, path: Option<String>) -> AppResult<()> {
+    /// Liga a gravação em `path` ou desliga (`None`). `format` é `text` ou
+    /// `cast`; `cols`/`rows` só entram no cabeçalho do asciicast.
+    pub async fn set_recording(
+        &self,
+        path: Option<String>,
+        format: &str,
+        cols: u32,
+        rows: u32,
+    ) -> AppResult<()> {
         let mut slot = self.recording.lock().await;
         let (tx, rx) = oneshot::channel();
         self.send(SessionCmd::Record {
             path: path.clone(),
+            format: format.to_string(),
+            cols,
+            rows,
             reply: tx,
         })
         .await?;
@@ -362,6 +399,7 @@ impl SessionManager {
         remote_targets: RemoteTargets,
     ) -> Arc<SessionHandle> {
         let handle = Arc::new(SessionHandle {
+            read_only: std::sync::atomic::AtomicBool::new(info.read_only),
             info: info.clone(),
             tx,
             sftp: Mutex::new(None),

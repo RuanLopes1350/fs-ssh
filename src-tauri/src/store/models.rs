@@ -65,6 +65,9 @@ pub struct Connection {
     pub theme_id: Option<String>,
     #[serde(default)]
     pub is_production: bool,
+    /// Sessão de observação: o backend recusa qualquer escrita enquanto ligado.
+    #[serde(default)]
+    pub read_only: bool,
     #[serde(default)]
     pub notes: String,
     #[serde(default)]
@@ -149,6 +152,45 @@ pub struct KnownHost {
     pub pubkey: String,
     pub first_seen: String,
     pub last_seen: String,
+}
+
+/// Uma transferência concluída (ou interrompida) do painel SFTP.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Transfer {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub ts: String,
+    pub connection_id: Option<String>,
+    #[serde(default)]
+    pub connection: String,
+    /// `up` (envio) ou `down` (download).
+    pub direction: String,
+    pub local: String,
+    pub remote: String,
+    #[serde(default)]
+    pub bytes: i64,
+    #[serde(default)]
+    pub total: i64,
+    /// `done`, `error` ou `cancelled`.
+    pub status: String,
+    #[serde(default)]
+    pub error: String,
+}
+
+/// Diretório favorito do painel SFTP, por conexão.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpBookmark {
+    #[serde(default)]
+    pub id: String,
+    pub connection_id: String,
+    /// `remote` ou `local`.
+    pub side: String,
+    #[serde(default)]
+    pub label: String,
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

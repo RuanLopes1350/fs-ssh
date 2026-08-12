@@ -266,8 +266,14 @@ export class TerminalSession {
     return cut < 0 ? null : shown.slice(cut).trim() || null;
   }
 
+  /**
+   * Modo somente leitura: o backend recusa a escrita de qualquer jeito, mas
+   * barrar aqui evita uma ida à IPC (e um erro na tela) a cada tecla.
+   */
+  readOnly = false;
+
   private send(bytes: number[]) {
-    if (!this.info || this.closed) return;
+    if (!this.info || this.closed || this.readOnly) return;
     const route = inputRouter;
     if (route) {
       route(this.info.sessionId, bytes);
@@ -276,6 +282,29 @@ export class TerminalSession {
     void api
       .sshWrite(this.info.sessionId, bytes)
       .catch(() => this.markClosed("conexão perdida"));
+  }
+
+  /**
+   * Scrollback em HTML, com as cores como estão na tela.
+   *
+   * Sai do `SerializeAddon`, então é o mesmo conteúdo que o usuário vê — o que
+   * serve para anexar em ticket ou relatório de incidente.
+   */
+  exportHtml(title: string) {
+    const body = this.serialize.serializeAsHTML({ includeGlobalBackground: true });
+    const when = new Date().toLocaleString("pt-BR");
+    return `<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>${escapeHtml(title)} — ${escapeHtml(when)}</title>
+<style>body{margin:0;padding:16px;background:#0b0e14;color:#dbe1ea;font-family:ui-monospace,monospace}h1{font:600 13px system-ui;color:#8b95a7;margin:0 0 12px}</style>
+</head>
+<body>
+<h1>${escapeHtml(title)} — sessão exportada em ${escapeHtml(when)}</h1>
+${body}
+</body>
+</html>`;
   }
 
   attach(container: HTMLElement) {
@@ -417,6 +446,14 @@ let commandSink: ((connectionId: string, command: string) => void) | null = null
 
 export function setCommandSink(fn: typeof commandSink) {
   commandSink = fn;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 export function isAuthPrompt(e: AppError) {

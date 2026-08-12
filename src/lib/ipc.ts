@@ -2,7 +2,9 @@ import { invoke as tauriInvoke, Channel } from "@tauri-apps/api/core";
 import type {
   AppError,
   AutostartResult,
+  Checksum,
   Connection,
+  DiffEntry,
   DockerContainer,
   ExecResult,
   Folder,
@@ -17,9 +19,16 @@ import type {
   Progress,
   RemoteEntry,
   SessionInfo,
+  SftpBookmark,
   Snippet,
   SshConfigHost,
+  SysOverview,
+  SysPort,
+  SysProcess,
+  SysService,
+  SysUpdates,
   Theme,
+  Transfer,
 } from "./types";
 
 /**
@@ -119,7 +128,17 @@ export const api = {
   forwardAutostart: (sessionId: string) =>
     invoke<AutostartResult>("forward_autostart", { sessionId }),
 
-  recordingStart: (sessionId: string) => invoke<string>("recording_start", { sessionId }),
+  recordingStart: (
+    sessionId: string,
+    format: "text" | "cast" = "text",
+    cols = 80,
+    rows = 24,
+  ) => invoke<string>("recording_start", { sessionId, format, cols, rows }),
+  /** Grava um texto no caminho escolhido no diálogo do sistema (exportações). */
+  exportText: (path: string, contents: string) =>
+    invoke<void>("export_text", { path, contents }),
+  sshSetReadOnly: (sessionId: string, value: boolean) =>
+    invoke<void>("ssh_set_read_only", { sessionId, value }),
   recordingStop: (sessionId: string) => invoke<void>("recording_stop", { sessionId }),
   recordingActive: (sessionId: string) =>
     invoke<string | null>("recording_active", { sessionId }),
@@ -145,6 +164,23 @@ export const api = {
   ) => invoke<void>("docker_action", { sessionId, action, container }),
   netInfo: (sessionId: string) => invoke<NetInfo>("net_info", { sessionId }),
 
+  // ------------------------------------------------ observabilidade do host
+
+  sysOverview: (sessionId: string) => invoke<SysOverview>("sys_overview", { sessionId }),
+  sysServices: (sessionId: string) => invoke<SysService[]>("sys_services", { sessionId }),
+  sysServiceAction: (
+    sessionId: string,
+    action: "start" | "stop" | "restart" | "reload",
+    unit: string,
+  ) => invoke<void>("sys_service_action", { sessionId, action, unit }),
+  sysProcesses: (sessionId: string) => invoke<SysProcess[]>("sys_processes", { sessionId }),
+  sysKill: (sessionId: string, pid: number, signal: "term" | "kill" | "hup") =>
+    invoke<void>("sys_kill", { sessionId, pid, signal }),
+  sysPorts: (sessionId: string) => invoke<SysPort[]>("sys_ports", { sessionId }),
+  sysUpdates: (sessionId: string) => invoke<SysUpdates>("sys_updates", { sessionId }),
+  sysTail: (sessionId: string, path: string, lines: number, filter: string) =>
+    invoke<string>("sys_tail", { sessionId, path, lines, filter }),
+
   // ------------------------------------------------------------------ sftp
 
   sftpList: (sessionId: string, path: string) =>
@@ -152,18 +188,62 @@ export const api = {
   sftpHome: (sessionId: string) => invoke<string>("sftp_home", { sessionId }),
   sftpDownload: (
     sessionId: string,
+    transferId: string,
     remote: string,
     local: string,
     resume: boolean,
     onProgress: Channel<Progress>,
-  ) => invoke<void>("sftp_download", { sessionId, remote, local, resume, onProgress }),
+  ) =>
+    invoke<void>("sftp_download", {
+      sessionId,
+      transferId,
+      remote,
+      local,
+      resume,
+      onProgress,
+    }),
   sftpUpload: (
     sessionId: string,
+    transferId: string,
     local: string,
     remote: string,
     resume: boolean,
     onProgress: Channel<Progress>,
-  ) => invoke<void>("sftp_upload", { sessionId, local, remote, resume, onProgress }),
+  ) =>
+    invoke<void>("sftp_upload", {
+      sessionId,
+      transferId,
+      local,
+      remote,
+      resume,
+      onProgress,
+    }),
+  /** Pausa/cancela uma transferência em andamento. */
+  sftpCancel: (transferId: string) => invoke<boolean>("sftp_cancel", { transferId }),
+  sftpMkdirP: (sessionId: string, path: string) =>
+    invoke<void>("sftp_mkdir_p", { sessionId, path }),
+  sftpFind: (sessionId: string, root: string, pattern: string, maxDepth: number) =>
+    invoke<string[]>("sftp_find", { sessionId, root, pattern, maxDepth }),
+  sftpChecksum: (sessionId: string, remote: string, local: string) =>
+    invoke<Checksum>("sftp_checksum", { sessionId, remote, local }),
+  sftpArchive: (
+    sessionId: string,
+    cwd: string,
+    action: "compress" | "extract",
+    target: string,
+    entries: string[],
+  ) => invoke<string>("sftp_archive", { sessionId, cwd, action, target, entries }),
+  sftpDiff: (sessionId: string, localDir: string, remoteDir: string) =>
+    invoke<DiffEntry[]>("sftp_diff", { sessionId, localDir, remoteDir }),
+
+  transferList: (limit?: number) => invoke<Transfer[]>("transfer_list", { limit }),
+  transferClear: () => invoke<void>("transfer_clear"),
+
+  bookmarkList: (connectionId: string) =>
+    invoke<SftpBookmark[]>("bookmark_list", { connectionId }),
+  bookmarkSave: (bookmark: Partial<SftpBookmark>) =>
+    invoke<SftpBookmark>("bookmark_save", { bookmark }),
+  bookmarkDelete: (id: string) => invoke<void>("bookmark_delete", { id }),
   sftpMkdir: (sessionId: string, path: string) => invoke<void>("sftp_mkdir", { sessionId, path }),
   sftpRename: (sessionId: string, from: string, to: string) =>
     invoke<void>("sftp_rename", { sessionId, from, to }),

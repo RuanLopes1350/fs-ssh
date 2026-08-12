@@ -7,6 +7,7 @@ import {
   KeyRound,
   Palette,
   Pencil,
+  PlayCircle,
   Plus,
   RefreshCw,
   ServerCog,
@@ -15,12 +16,13 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { open as openFileDialog, save } from "@tauri-apps/plugin-dialog";
 
 import { ConfirmDialog, InputDialog, Spinner } from "../components/Dialogs";
 import { Modal } from "../components/Dialogs";
 import { api, asAppError } from "../lib/ipc";
 import { LogsView } from "../logs/LogsView";
+import { CastPlayer } from "../recordings/CastPlayer";
 import { terminals } from "../terminal/session";
 import { useAppStore } from "../store/useAppStore";
 import type {
@@ -949,6 +951,17 @@ function RecordingsTab() {
     void reload();
   }, []);
 
+  /** Salva uma cópia da gravação onde o usuário escolher. */
+  const exportRecording = async (rec: Recording) => {
+    try {
+      const dest = await save({ defaultPath: rec.name });
+      if (!dest) return;
+      await api.exportText(dest, await api.recordingRead(rec.path));
+    } catch (e) {
+      setError(asAppError(e).message);
+    }
+  };
+
   const view = async (rec: Recording) => {
     try {
       setViewing({ rec, text: await api.recordingRead(rec.path) });
@@ -960,8 +973,9 @@ function RecordingsTab() {
   return (
     <>
       <div className="muted" style={{ fontSize: 11 }}>
-        Gravações da saída do terminal (texto, sem códigos de cor). Ligue pelo botão ●
-        na barra de ferramentas ou marque "gravar automaticamente" nas configurações.
+        Gravações da saída do terminal. Ligue pelo botão ● na barra de ferramentas ou
+        marque "gravar automaticamente" nas configurações; o formato (texto legível ou
+        asciicast com replay) também sai de lá.
         <br />
         <b>Atenção:</b> o arquivo contém tudo que passou pela tela — inclusive segredos
         exibidos. Os arquivos nascem com permissão 0600.
@@ -981,15 +995,31 @@ function RecordingsTab() {
             borderBottom: "1px solid var(--border)",
           }}
         >
-          <FileText size={14} color="var(--text-faint)" />
+          {r.format === "cast" ? (
+            <PlayCircle size={14} color="var(--accent)" />
+          ) : (
+            <FileText size={14} color="var(--text-faint)" />
+          )}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="file__name">{r.name}</div>
             <div className="muted" style={{ fontSize: 10 }}>
+              {r.format === "cast" ? "asciicast · " : ""}
               {humanBytes(r.size)} · {new Date(r.modified * 1000).toLocaleString("pt-BR")}
             </div>
           </div>
-          <button className="icon-btn" title="Ver conteúdo" onClick={() => void view(r)}>
-            <Eye size={13} />
+          <button
+            className="icon-btn"
+            title={r.format === "cast" ? "Reproduzir a sessão" : "Ver conteúdo"}
+            onClick={() => void view(r)}
+          >
+            {r.format === "cast" ? <PlayCircle size={13} /> : <Eye size={13} />}
+          </button>
+          <button
+            className="icon-btn"
+            title="Exportar para um arquivo"
+            onClick={() => void exportRecording(r)}
+          >
+            <Download size={13} />
           </button>
           <button className="icon-btn" title="Excluir" onClick={() => setDeleting(r)}>
             <Trash2 size={13} color="var(--danger)" />
@@ -1005,13 +1035,28 @@ function RecordingsTab() {
         <RefreshCw size={13} style={{ verticalAlign: -2 }} /> Recarregar
       </button>
 
-      {viewing && (
-        <TextViewer
-          title={viewing.rec.name}
-          text={viewing.text}
-          onClose={() => setViewing(null)}
-        />
-      )}
+      {viewing &&
+        (viewing.rec.format === "cast" ? (
+          <Modal
+            title={viewing.rec.name}
+            wide
+            icon={<PlayCircle size={16} color="var(--accent)" />}
+            onClose={() => setViewing(null)}
+            footer={
+              <button className="btn btn--primary" onClick={() => setViewing(null)}>
+                Fechar
+              </button>
+            }
+          >
+            <CastPlayer text={viewing.text} />
+          </Modal>
+        ) : (
+          <TextViewer
+            title={viewing.rec.name}
+            text={viewing.text}
+            onClose={() => setViewing(null)}
+          />
+        ))}
 
       {deleting && (
         <ConfirmDialog

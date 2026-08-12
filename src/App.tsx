@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Cable,
   Circle,
   Container,
+  FileDown,
   FolderTree,
+  Gauge,
   History,
+  Lock,
+  LockOpen,
   Maximize2,
   Minimize2,
   Minus,
@@ -45,7 +50,9 @@ import type {
 } from "./lib/types";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { SftpPanel } from "./sftp/SftpPanel";
+import { useTransferQueue } from "./sftp/queue";
 import { Sidebar } from "./sidebar/Sidebar";
+import { SystemPanel } from "./system/SystemPanel";
 import { TunnelsPanel } from "./tunnels/TunnelsPanel";
 import {
   setCommandSink,
@@ -218,11 +225,15 @@ export default function App() {
       try {
         const session = terminals.get(paneId)!;
         const info = await session.connect(secret, jumpSecret);
+        // A trava de somente leitura vem da conexão; o terminal já nasce sabendo
+        // para não mandar tecla que o backend vai recusar.
+        session.readOnly = info.readOnly;
         useAppStore.getState().updatePane(paneId, {
           status: "open",
           sessionId: info.sessionId,
           detail: null,
           reconnectAttempt: 0,
+          readOnly: info.readOnly,
         });
         pending.current = null;
         // Túneis marcados como auto-início sobem junto com a sessão; falhas
@@ -235,8 +246,14 @@ export default function App() {
           }
         });
         if (useAppStore.getState().settings.autoRecord) {
+          const term = terminals.get(paneId)?.term;
           void api
-            .recordingStart(info.sessionId)
+            .recordingStart(
+              info.sessionId,
+              useAppStore.getState().settings.recordFormat,
+              term?.cols ?? 80,
+              term?.rows ?? 24,
+            )
             .then((path) => useAppStore.getState().updatePane(paneId, { recording: path }))
             .catch(() => {});
         }
@@ -299,6 +316,8 @@ export default function App() {
         ?.markClosed(exitStatus != null ? `${reason} (código ${exitStatus})` : reason);
       // A gravação morre com a sessão; o backend já fechou o arquivo.
       updatePane(found.pane.id, { status: "closed", detail: reason, recording: null });
+      // Fila de transferências de um servidor que caiu não tem para onde ir.
+      useTransferQueue.getState().dropSession(sessionId);
 
       // Auto-reconnect só para queda inesperada: `exit` limpo (exitStatus
       // preenchido) e fechamento pelo usuário não contam.
@@ -474,11 +493,55 @@ export default function App() {
           await api.recordingStop(sessionId);
           useAppStore.getState().updatePane(id, { recording: null });
         } else {
-          const path = await api.recordingStart(sessionId);
+          // O asciicast guarda as dimensões no cabeçalho: quem for rever precisa
+          // do mesmo tamanho de tela para o desenho bater.
+          const term = terminals.get(id)?.term;
+          const path = await api.recordingStart(
+            sessionId,
+            useAppStore.getState().settings.recordFormat,
+            term?.cols ?? 80,
+            term?.rows ?? 24,
+          );
           useAppStore.getState().updatePane(id, { recording: path });
         }
       } catch {
         // Sessão que morreu no meio: o painel já mostra o estado real.
+      }
+    })();
+  };
+
+  /** Trava/destrava a escrita da sessão do painel ativo. */
+  const toggleReadOnly = () => {
+    if (!activePane?.sessionId) return;
+    const { id, sessionId, readOnly } = activePane;
+    const next = !readOnly;
+    void (async () => {
+      try {
+        await api.sshSetReadOnly(sessionId, next);
+        const session = terminals.get(id);
+        if (session) session.readOnly = next;
+        useAppStore.getState().updatePane(id, { readOnly: next });
+      } catch {
+        // Sessão encerrada: o estado real já aparece no painel.
+      }
+    })();
+  };
+
+  /** Exporta o scrollback do painel ativo em HTML, com cores. */
+  const exportScrollback = () => {
+    if (!activePane) return;
+    const session = terminals.get(activePane.id);
+    if (!session) return;
+    void (async () => {
+      try {
+        const stamp = new Date().toISOString().slice(0, 19).replaceAll(":", "-");
+        const dest = await save({
+          defaultPath: `${activePane.title.replaceAll("/", "-")}-${stamp}.html`,
+        });
+        if (!dest) return;
+        await api.exportText(dest, session.exportHtml(activePane.title));
+      } catch {
+        // Diálogo cancelado ou disco cheio: nada a fazer aqui.
       }
     })();
   };
@@ -585,6 +648,9 @@ export default function App() {
         // ⌘N (sem shift) já é "nova conexão" — a rede fica no ⌘⇧N.
         e.preventDefault();
         store.togglePanel("net");
+      } else if ((e.key === "s" || e.key === "S") && e.shiftKey) {
+        e.preventDefault();
+        store.togglePanel("sys");
       } else if ((e.key === "t" || e.key === "T") && e.shiftKey) {
         e.preventDefault();
         store.togglePanel("tunnels");
@@ -1038,6 +1104,29 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              aria-label="Modo somente leitura"
+              data-active={!!activePane?.readOnly}
+              disabled={!activePane?.sessionId}
+              title={
+                activePane?.readOnly
+                  ? "Somente leitura: nada do que você digitar é enviado — clique para destravar"
+                  : "Travar a sessão em somente leitura (nem teclado nem broadcast escrevem)"
+              }
+              onClick={toggleReadOnly}
+            >
+              {activePane?.readOnly ? <Lock size={14} /> : <LockOpen size={14} />}
+            </button>
+            <button
+              className="icon-btn"
+              aria-label="Exportar a sessão em HTML"
+              disabled={!activePane?.sessionId}
+              title="Exportar o que está na tela (scrollback) em HTML, com cores"
+              onClick={exportScrollback}
+            >
+              <FileDown size={14} />
+            </button>
+            <button
+              className="icon-btn"
               aria-label="Painel de arquivos (SFTP)"
               data-active={openPanel === "sftp"}
               disabled={isLocalPane || !activePane?.sessionId}
@@ -1077,6 +1166,20 @@ export default function App() {
               onClick={() => useAppStore.getState().togglePanel("net")}
             >
               <Network size={14} />
+            </button>
+            <button
+              className="icon-btn"
+              aria-label="Sistema do host (⌘⇧S)"
+              data-active={openPanel === "sys"}
+              disabled={!activePane?.sessionId}
+              title={
+                isLocalPane
+                  ? "Sistema desta máquina: carga, memória, disco, processos (⌘⇧S)"
+                  : "Sistema deste host: carga, memória, disco, serviços, portas (⌘⇧S)"
+              }
+              onClick={() => useAppStore.getState().togglePanel("sys")}
+            >
+              <Gauge size={14} />
             </button>
             <button
               className="icon-btn"
@@ -1127,7 +1230,9 @@ export default function App() {
             className="session-strip"
             data-production={activePane.isProduction}
             style={activePane.isProduction ? undefined : { background: activePane.color }}
-          />
+          >
+            {activePane.readOnly && <span className="session-strip__tag">somente leitura</span>}
+          </div>
         )}
 
         <div className="workarea" data-broadcast={broadcast}>
@@ -1152,8 +1257,12 @@ export default function App() {
             ))
           )}
 
-          {openPanel === "sftp" && remoteSessionId && (
-            <SftpPanel key={remoteSessionId} sessionId={remoteSessionId} />
+          {openPanel === "sftp" && remoteSessionId && activePane && (
+            <SftpPanel
+              key={remoteSessionId}
+              sessionId={remoteSessionId}
+              connectionId={activePane.connectionId}
+            />
           )}
           {openPanel === "docker" && activePane?.sessionId && (
             <DockerPanel
@@ -1166,6 +1275,14 @@ export default function App() {
             <NetworkPanel
               key={activePane.sessionId}
               sessionId={activePane.sessionId}
+              local={isLocalPane}
+            />
+          )}
+          {openPanel === "sys" && activePane?.sessionId && (
+            <SystemPanel
+              key={activePane.sessionId}
+              sessionId={activePane.sessionId}
+              connectionId={activePane.connectionId}
               local={isLocalPane}
             />
           )}

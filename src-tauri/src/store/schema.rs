@@ -132,6 +132,42 @@ const MIGRATIONS: &[&str] = &[
     DROP TABLE IF EXISTS connection_tags;
     DROP TABLE IF EXISTS tags;
     "#,
+    // v6 — histórico de transferências e diretórios favoritos do SFTP.
+    //
+    // O histórico sobrevive à conexão apagada (sem FK em connection_id): "o que
+    // eu subi naquele servidor?" é justamente a pergunta que aparece depois.
+    r#"
+    CREATE TABLE transfers (
+        id            TEXT PRIMARY KEY,
+        ts            TEXT NOT NULL,            -- RFC3339 UTC
+        connection_id TEXT,
+        connection    TEXT NOT NULL DEFAULT '',
+        direction     TEXT NOT NULL,            -- up | down
+        local         TEXT NOT NULL,
+        remote        TEXT NOT NULL,
+        bytes         INTEGER NOT NULL DEFAULT 0,
+        total         INTEGER NOT NULL DEFAULT 0,
+        status        TEXT NOT NULL,            -- done | error | cancelled
+        error         TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE INDEX idx_transfers_ts ON transfers(ts DESC);
+
+    CREATE TABLE sftp_bookmarks (
+        id            TEXT PRIMARY KEY,
+        connection_id TEXT NOT NULL,
+        side          TEXT NOT NULL DEFAULT 'remote',  -- remote | local
+        label         TEXT NOT NULL DEFAULT '',
+        path          TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX idx_bookmarks_unique ON sftp_bookmarks(connection_id, side, path);
+    "#,
+    // v7 — modo somente leitura por conexão: entra, olha, não digita.
+    r#"
+    ALTER TABLE connections
+        ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 pub fn migrate(conn: &Connection) -> AppResult<()> {

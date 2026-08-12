@@ -40,6 +40,7 @@ fn test_conn() -> Connection {
         icon: "server".into(),
         theme_id: None,
         is_production: false,
+        read_only: false,
         notes: String::new(),
         created_at: String::new(),
         last_used_at: None,

@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -39,6 +40,46 @@ pub struct Progress {
     pub total: u64,
     pub done: bool,
     pub error: Option<String>,
+    /// Interrompida a pedido (pausa da fila). O que já chegou fica no disco e a
+    /// retomada continua daí — por isso pausa não é erro.
+    #[serde(default)]
+    pub cancelled: bool,
+}
+
+/// Transferências em andamento, por id. Cada uma tem uma bandeira que o laço de
+/// cópia consulta a cada bloco: é assim que pausar/cancelar chega até ela sem
+/// derrubar a sessão nem o canal SFTP, que são compartilhados.
+#[derive(Default)]
+pub struct TransferRegistry {
+    map: std::sync::Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>,
+}
+
+impl TransferRegistry {
+    pub fn register(&self, id: &str) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(false));
+        if let Ok(mut m) = self.map.lock() {
+            m.insert(id.to_string(), flag.clone());
+        }
+        flag
+    }
+
+    /// Marca a transferência para parar. `false` se ela já tinha terminado.
+    pub fn cancel(&self, id: &str) -> bool {
+        let Ok(m) = self.map.lock() else { return false };
+        match m.get(id) {
+            Some(flag) => {
+                flag.store(true, Ordering::Relaxed);
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn finish(&self, id: &str) {
+        if let Ok(mut m) = self.map.lock() {
+            m.remove(id);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,8 +151,9 @@ pub async fn download(
     remote: String,
     local: String,
     resume: bool,
+    cancel: Arc<AtomicBool>,
     on_progress: IpcChannel<Progress>,
-) -> AppResult<()> {
+) -> AppResult<u64> {
     let meta = sftp.metadata(remote.clone()).await?;
     let total = meta.size.unwrap_or(0);
 
@@ -138,7 +180,7 @@ pub async fn download(
         .open(&local)
         .await?;
 
-    let r = pump(&mut rf, &mut lf, offset, total, &on_progress).await;
+    let r = pump(&mut rf, &mut lf, offset, total, &cancel, &on_progress).await;
     lf.flush().await?;
     report_end(&on_progress, offset, total, r)
 }
@@ -149,8 +191,9 @@ pub async fn upload(
     local: String,
     remote: String,
     resume: bool,
+    cancel: Arc<AtomicBool>,
     on_progress: IpcChannel<Progress>,
-) -> AppResult<()> {
+) -> AppResult<u64> {
     let total = tokio::fs::metadata(&local).await?.len();
 
     let mut offset = 0u64;
@@ -176,19 +219,22 @@ pub async fn upload(
         lf.seek(std::io::SeekFrom::Start(offset)).await?;
     }
 
-    let r = pump(&mut lf, &mut rf, offset, total, &on_progress).await;
+    let r = pump(&mut lf, &mut rf, offset, total, &cancel, &on_progress).await;
     rf.flush().await?;
     let _ = rf.shutdown().await;
     report_end(&on_progress, offset, total, r)
 }
 
+/// Copia bloco a bloco até o fim ou até a bandeira de cancelamento subir.
+/// Devolve `(bytes, interrompida)`.
 async fn pump<R, W>(
     src: &mut R,
     dst: &mut W,
     start: u64,
     total: u64,
+    cancel: &AtomicBool,
     on_progress: &IpcChannel<Progress>,
-) -> std::io::Result<u64>
+) -> std::io::Result<(u64, bool)>
 where
     R: tokio::io::AsyncRead + Unpin,
     W: tokio::io::AsyncWrite + Unpin,
@@ -198,6 +244,11 @@ where
     let mut last = tokio::time::Instant::now();
 
     loop {
+        // A checagem vem antes da leitura: pausar não deve esperar mais um bloco
+        // chegar da rede para fazer efeito.
+        if cancel.load(Ordering::Relaxed) {
+            return Ok((transferred, true));
+        }
         let n = src.read(&mut buf).await?;
         if n == 0 {
             break;
@@ -211,28 +262,30 @@ where
                 total,
                 done: false,
                 error: None,
+                cancelled: false,
             });
             last = tokio::time::Instant::now();
         }
     }
-    Ok(transferred)
+    Ok((transferred, false))
 }
 
 fn report_end(
     on_progress: &IpcChannel<Progress>,
     start: u64,
     total: u64,
-    r: std::io::Result<u64>,
-) -> AppResult<()> {
+    r: std::io::Result<(u64, bool)>,
+) -> AppResult<u64> {
     match r {
-        Ok(transferred) => {
+        Ok((transferred, cancelled)) => {
             let _ = on_progress.send(Progress {
                 transferred,
                 total,
                 done: true,
                 error: None,
+                cancelled,
             });
-            Ok(())
+            Ok(transferred)
         }
         Err(e) => {
             let _ = on_progress.send(Progress {
@@ -240,10 +293,29 @@ fn report_end(
                 total,
                 done: true,
                 error: Some(e.to_string()),
+                cancelled: false,
             });
             Err(AppError::Io(e))
         }
     }
+}
+
+/// SHA-256 de um arquivo local, lido em blocos — o par local do `sha256sum`
+/// remoto na conferência de cópia.
+pub async fn sha256_local(path: &str) -> AppResult<String> {
+    use sha2::{Digest, Sha256};
+
+    let mut f = tokio::fs::File::open(path).await?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; CHUNK];
+    loop {
+        let n = f.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 /// Lê um arquivo remoto inteiro na memória. Usado pelo "editar localmente" —
@@ -257,6 +329,102 @@ pub async fn read_all(sftp: &SftpSession, path: &str, max: u64) -> AppResult<Vec
         )));
     }
     Ok(sftp.read(path.to_string()).await?)
+}
+
+/// Um arquivo achado por uma varredura de diretório, com o caminho relativo à
+/// raiz varrida — é a chave que casa os dois lados na comparação de pastas.
+#[derive(Debug, Clone)]
+pub struct WalkEntry {
+    pub rel: String,
+    pub size: u64,
+    pub mtime: u64,
+}
+
+/// Percorre um diretório remoto inteiro. Iterativo, não recursivo: cada nível é
+/// um round-trip SFTP, e uma pilha explícita deixa o teto de entradas óbvio.
+pub async fn walk_remote(sftp: &SftpSession, base: &str, max: usize) -> AppResult<Vec<WalkEntry>> {
+    let base = sftp.canonicalize(base.to_string()).await?;
+    let mut out = Vec::new();
+    let mut stack = vec![String::new()];
+
+    while let Some(rel_dir) = stack.pop() {
+        let dir = if rel_dir.is_empty() {
+            base.clone()
+        } else {
+            join(&base, &rel_dir)
+        };
+        for entry in sftp.read_dir(dir).await? {
+            let name = entry.file_name();
+            if name == "." || name == ".." || name.contains('/') || name.contains('\0') {
+                continue;
+            }
+            let rel = if rel_dir.is_empty() {
+                name.clone()
+            } else {
+                format!("{rel_dir}/{name}")
+            };
+            let meta = entry.metadata();
+            if entry.file_type().is_dir() {
+                stack.push(rel);
+            } else if entry.file_type().is_file() {
+                out.push(WalkEntry {
+                    rel,
+                    size: meta.size.unwrap_or(0),
+                    mtime: meta.mtime.unwrap_or(0) as u64,
+                });
+                if out.len() > max {
+                    return Err(AppError::msg(format!(
+                        "diretório remoto com mais de {max} arquivos — compare uma pasta menor"
+                    )));
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Mesma varredura, do lado local. Links simbólicos não são seguidos: um link
+/// para `/` transformaria a comparação numa varredura do disco inteiro.
+pub fn walk_local(base: &str, max: usize) -> AppResult<Vec<WalkEntry>> {
+    let root = Path::new(base);
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(meta) = entry.metadata() else { continue };
+            if meta.is_symlink() {
+                continue;
+            }
+            if meta.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Ok(rel) = path.strip_prefix(root) else {
+                continue;
+            };
+            out.push(WalkEntry {
+                rel: rel.to_string_lossy().replace('\\', "/"),
+                size: meta.len(),
+                mtime: meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+            });
+            if out.len() > max {
+                return Err(AppError::msg(format!(
+                    "diretório local com mais de {max} arquivos — compare uma pasta menor"
+                )));
+            }
+        }
+    }
+    Ok(out)
 }
 
 pub fn local_list(path: &str) -> AppResult<Vec<LocalEntry>> {

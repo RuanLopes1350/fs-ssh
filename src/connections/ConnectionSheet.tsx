@@ -48,6 +48,7 @@ export const EMPTY_CONNECTION: Connection = {
   icon: "server",
   themeId: null,
   isProduction: false,
+  readOnly: false,
   notes: "",
   createdAt: "",
   lastUsedAt: null,
@@ -329,6 +330,22 @@ export function ConnectionSheet({
               <span className="block text-[13px]">Servidor de produção</span>
               <span className="block text-[11px] text-faint">
                 Pede confirmação ao conectar e marca a sessão com faixa vermelha.
+              </span>
+            </span>
+          </label>
+
+          <label className="flex cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={conn.readOnly}
+              onChange={(e) => set("readOnly", e.target.checked)}
+              style={{ width: "auto", marginTop: 3 }}
+            />
+            <span className="min-w-0">
+              <span className="block text-[13px]">Abrir em somente leitura</span>
+              <span className="block text-[11px] text-faint">
+                A sessão nasce travada: teclado, snippets e broadcast não escrevem nada.
+                Dá para destravar no cadeado da barra quando precisar agir.
               </span>
             </span>
           </label>

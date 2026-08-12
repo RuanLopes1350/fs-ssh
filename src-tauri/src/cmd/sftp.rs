@@ -31,30 +31,152 @@ pub async fn sftp_home(state: State<'_, AppState>, session_id: String) -> AppRes
     sftp::canonicalize(&s, ".").await
 }
 
+/// Baixa um arquivo remoto. `transfer_id` é o identificador da fila: é por ele
+/// que `sftp_cancel` pausa esta transferência e que o histórico a registra.
 #[tauri::command]
 pub async fn sftp_download(
     state: State<'_, AppState>,
     session_id: String,
+    transfer_id: String,
     remote: String,
     local: String,
     resume: bool,
     on_progress: IpcChannel<Progress>,
 ) -> AppResult<()> {
-    let s = state.sessions.get(&session_id).await?.sftp().await?;
-    sftp::download(s, remote, local, resume, on_progress).await
+    let handle = state.sessions.get(&session_id).await?;
+    let s = handle.sftp().await?;
+    // Destino dentro de uma subpasta que ainda não existe (sincronização de
+    // diretório) precisa da árvore criada antes de abrir o arquivo.
+    if let Some(dir) = Path::new(&local).parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+
+    let cancel = state.transfers.register(&transfer_id);
+    let result = sftp::download(
+        s,
+        remote.clone(),
+        local.clone(),
+        resume,
+        cancel.clone(),
+        on_progress,
+    )
+    .await;
+    state.transfers.finish(&transfer_id);
+
+    record_transfer(&state, &handle, "down", &local, &remote, &result, &cancel);
+    result.map(|_| ())
 }
 
 #[tauri::command]
 pub async fn sftp_upload(
     state: State<'_, AppState>,
     session_id: String,
+    transfer_id: String,
     local: String,
     remote: String,
     resume: bool,
     on_progress: IpcChannel<Progress>,
 ) -> AppResult<()> {
-    let s = state.sessions.get(&session_id).await?.sftp().await?;
-    sftp::upload(s, local, remote, resume, on_progress).await
+    let handle = state.sessions.get(&session_id).await?;
+    let s = handle.sftp().await?;
+
+    let cancel = state.transfers.register(&transfer_id);
+    let result = sftp::upload(
+        s,
+        local.clone(),
+        remote.clone(),
+        resume,
+        cancel.clone(),
+        on_progress,
+    )
+    .await;
+    state.transfers.finish(&transfer_id);
+
+    record_transfer(&state, &handle, "up", &local, &remote, &result, &cancel);
+    result.map(|_| ())
+}
+
+/// Pausa/cancela uma transferência em andamento. O que já chegou fica no disco;
+/// retomar é começar de novo com `resume`.
+#[tauri::command]
+pub async fn sftp_cancel(state: State<'_, AppState>, transfer_id: String) -> AppResult<bool> {
+    Ok(state.transfers.cancel(&transfer_id))
+}
+
+/// Anota no histórico o desfecho de uma transferência.
+fn record_transfer(
+    state: &State<'_, AppState>,
+    handle: &std::sync::Arc<crate::ssh::SessionHandle>,
+    direction: &str,
+    local: &str,
+    remote: &str,
+    result: &AppResult<u64>,
+    cancel: &std::sync::atomic::AtomicBool,
+) {
+    use crate::store::models::Transfer;
+
+    let cancelled = cancel.load(std::sync::atomic::Ordering::Relaxed);
+    let (status, error, bytes) = match result {
+        Ok(bytes) if cancelled => ("cancelled", String::new(), *bytes),
+        Ok(bytes) => ("done", String::new(), *bytes),
+        Err(e) => ("error", e.to_string(), 0),
+    };
+
+    let connection = state
+        .db
+        .get_connection(&handle.info.connection_id)
+        .map(|c| c.name)
+        .unwrap_or_else(|_| handle.info.host.clone());
+
+    state.db.add_transfer(Transfer {
+        id: String::new(),
+        ts: String::new(),
+        connection_id: Some(handle.info.connection_id.clone()),
+        connection,
+        direction: direction.to_string(),
+        local: local.to_string(),
+        remote: remote.to_string(),
+        bytes: bytes as i64,
+        total: bytes as i64,
+        status: status.to_string(),
+        error,
+    });
+}
+
+#[tauri::command]
+pub fn transfer_list(
+    state: State<'_, AppState>,
+    limit: Option<i64>,
+) -> AppResult<Vec<crate::store::models::Transfer>> {
+    state.db.list_transfers(limit.unwrap_or(200))
+}
+
+#[tauri::command]
+pub fn transfer_clear(state: State<'_, AppState>) -> AppResult<()> {
+    state.db.clear_transfers()
+}
+
+// ------------------------------------------------------ favoritos de diretório
+
+#[tauri::command]
+pub fn bookmark_list(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> AppResult<Vec<crate::store::models::SftpBookmark>> {
+    state.db.list_bookmarks(&connection_id)
+}
+
+#[tauri::command]
+pub fn bookmark_save(
+    state: State<'_, AppState>,
+    bookmark: crate::store::models::SftpBookmark,
+) -> AppResult<crate::store::models::SftpBookmark> {
+    state.db.save_bookmark(bookmark)
+}
+
+#[tauri::command]
+pub fn bookmark_delete(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    state.db.delete_bookmark(&id)
 }
 
 #[tauri::command]
@@ -110,6 +232,268 @@ pub async fn sftp_chmod(
     meta.permissions = Some(type_bits | (mode & 0o7777));
     s.set_metadata(path, meta).await?;
     Ok(())
+}
+
+/// Cria o diretório e todos os pais que faltarem (o `mkdir -p` do SFTP, que o
+/// protocolo não tem). Diretório existente não é erro.
+#[tauri::command]
+pub async fn sftp_mkdir_p(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> AppResult<()> {
+    let s = state.sessions.get(&session_id).await?.sftp().await?;
+    let mut acc = if path.starts_with('/') { String::from("/") } else { String::new() };
+    for part in path.split('/').filter(|p| !p.is_empty()) {
+        if !acc.is_empty() && !acc.ends_with('/') {
+            acc.push('/');
+        }
+        acc.push_str(part);
+        if s.metadata(acc.clone()).await.is_err() {
+            // Corrida com outro cliente criando o mesmo diretório não é falha.
+            let _ = s.create_dir(acc.clone()).await;
+        }
+    }
+    Ok(())
+}
+
+/// Teto de resultados da busca remota.
+const FIND_LIMIT: usize = 500;
+
+/// Procura arquivos no servidor por nome (`find -iname`), sem sair do painel.
+#[tauri::command]
+pub async fn sftp_find(
+    state: State<'_, AppState>,
+    session_id: String,
+    root: String,
+    pattern: String,
+    max_depth: u32,
+) -> AppResult<Vec<String>> {
+    if pattern.trim().is_empty() {
+        return Err(AppError::msg("informe o que procurar"));
+    }
+    // Sem curinga o usuário quer "contém", não "é igual a".
+    let needle = if pattern.contains('*') || pattern.contains('?') {
+        pattern.clone()
+    } else {
+        format!("*{pattern}*")
+    };
+
+    let cmd = format!(
+        "find {} -maxdepth {} -iname {} 2>/dev/null | head -n {FIND_LIMIT}",
+        super::sys::quote(&root),
+        max_depth.clamp(1, 20),
+        super::sys::quote(&needle),
+    );
+    let (_code, out) = state.sessions.get(&session_id).await?.exec(cmd).await?;
+
+    Ok(String::from_utf8_lossy(&out)
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|l| l.to_string())
+        .collect())
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Checksum {
+    pub remote: String,
+    pub local: String,
+    pub equal: bool,
+}
+
+/// Compara o SHA-256 das duas pontas. O remoto sai do `sha256sum`/`shasum` do
+/// próprio host (nada trafega além do hash); o local é calculado aqui.
+#[tauri::command]
+pub async fn sftp_checksum(
+    state: State<'_, AppState>,
+    session_id: String,
+    remote: String,
+    local: String,
+) -> AppResult<Checksum> {
+    let quoted = super::sys::quote(&remote);
+    let cmd = format!(
+        "sha256sum -- {quoted} 2>/dev/null || shasum -a 256 -- {quoted} 2>/dev/null || \
+         openssl dgst -sha256 {quoted} 2>/dev/null"
+    );
+    let (_code, out) = state.sessions.get(&session_id).await?.exec(cmd).await?;
+    let text = String::from_utf8_lossy(&out);
+
+    // "abc…  arquivo" (sha256sum/shasum) ou "SHA256(arquivo)= abc…" (openssl).
+    let remote_hash = text
+        .split_whitespace()
+        .find(|t| t.len() == 64 && t.chars().all(|c| c.is_ascii_hexdigit()))
+        .map(|t| t.to_lowercase())
+        .ok_or_else(|| {
+            AppError::msg(format!(
+                "não deu para calcular o hash no servidor: {}",
+                text.trim()
+            ))
+        })?;
+
+    let local_hash = sftp::sha256_local(&local).await?;
+    Ok(Checksum {
+        equal: remote_hash == local_hash,
+        remote: remote_hash,
+        local: local_hash,
+    })
+}
+
+/// Compacta uma seleção ou extrai um arquivo, no próprio servidor — o que evita
+/// baixar dez mil arquivos pequenos só para juntá-los de novo do outro lado.
+///
+/// `target` é o arquivo a criar (`compress`) ou a abrir (`extract`); `entries`
+/// só vale em `compress` e traz nomes — não caminhos — dentro de `cwd`.
+#[tauri::command]
+pub async fn sftp_archive(
+    state: State<'_, AppState>,
+    session_id: String,
+    cwd: String,
+    action: String,
+    target: String,
+    entries: Vec<String>,
+) -> AppResult<String> {
+    let cd = format!("cd {} 2>&1 && ", super::sys::quote(&cwd));
+
+    let cmd = match action.as_str() {
+        "compress" => {
+            if entries.is_empty() {
+                return Err(AppError::msg("nada selecionado para compactar"));
+            }
+            if entries.iter().any(|e| e.contains('/') || e.is_empty()) {
+                return Err(AppError::msg("selecione itens do diretório atual"));
+            }
+            let list = entries
+                .iter()
+                .map(|e| super::sys::quote(e))
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!("{cd}tar -czf {} -- {list} 2>&1", super::sys::quote(&target))
+        }
+        "extract" => {
+            let q = super::sys::quote(&target);
+            let lower = target.to_lowercase();
+            let tool = if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
+                format!("tar -xzf {q}")
+            } else if lower.ends_with(".tar.bz2") || lower.ends_with(".tbz2") {
+                format!("tar -xjf {q}")
+            } else if lower.ends_with(".tar.xz") || lower.ends_with(".txz") {
+                format!("tar -xJf {q}")
+            } else if lower.ends_with(".tar") {
+                format!("tar -xf {q}")
+            } else if lower.ends_with(".zip") {
+                format!("unzip -o {q}")
+            } else if lower.ends_with(".gz") {
+                format!("gunzip -k {q}")
+            } else {
+                return Err(AppError::msg(format!(
+                    "não sei extrair {target} (tar.gz, tar.bz2, tar.xz, tar, zip ou gz)"
+                )));
+            };
+            format!("{cd}{tool} 2>&1")
+        }
+        other => return Err(AppError::msg(format!("ação inválida: {other}"))),
+    };
+
+    let (code, out) = state.sessions.get(&session_id).await?.exec(cmd).await?;
+    let text = String::from_utf8_lossy(&out).trim().to_string();
+    if code != 0 {
+        return Err(AppError::msg(if text.is_empty() {
+            format!("falha ao {action}")
+        } else {
+            text
+        }));
+    }
+    Ok(text)
+}
+
+/// Teto da comparação de pastas: acima disso a espera deixa de valer a pena e a
+/// resposta certa é comparar uma pasta menor.
+const MAX_SYNC_ENTRIES: usize = 5000;
+/// Tolerância de mtime. SFTP guarda segundos e sistemas de arquivo arredondam
+/// diferente; sem folga, cópia idêntica apareceria como divergente.
+const MTIME_SLACK: u64 = 2;
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffEntry {
+    /// Caminho relativo às duas raízes comparadas.
+    pub rel: String,
+    /// `onlyLocal` | `onlyRemote` | `differs` | `equal`
+    pub status: String,
+    pub local_size: u64,
+    pub remote_size: u64,
+    pub local_mtime: u64,
+    pub remote_mtime: u64,
+}
+
+/// Compara dois diretórios (recursivo) e devolve o que difere — a prévia que
+/// antecede uma sincronização. Não copia nada: quem transfere é a fila.
+#[tauri::command]
+pub async fn sftp_diff(
+    state: State<'_, AppState>,
+    session_id: String,
+    local_dir: String,
+    remote_dir: String,
+) -> AppResult<Vec<DiffEntry>> {
+    use std::collections::HashMap;
+
+    let s = state.sessions.get(&session_id).await?.sftp().await?;
+    let remote = sftp::walk_remote(&s, &remote_dir, MAX_SYNC_ENTRIES).await?;
+    let local = sftp::walk_local(&local_dir, MAX_SYNC_ENTRIES)?;
+
+    let mut remote_map: HashMap<String, sftp::WalkEntry> =
+        remote.into_iter().map(|e| (e.rel.clone(), e)).collect();
+
+    let mut out = Vec::new();
+    for l in local {
+        match remote_map.remove(&l.rel) {
+            Some(r) => {
+                let same = l.size == r.size && l.mtime.abs_diff(r.mtime) <= MTIME_SLACK;
+                out.push(DiffEntry {
+                    rel: l.rel,
+                    status: if same { "equal" } else { "differs" }.into(),
+                    local_size: l.size,
+                    remote_size: r.size,
+                    local_mtime: l.mtime,
+                    remote_mtime: r.mtime,
+                });
+            }
+            None => out.push(DiffEntry {
+                rel: l.rel,
+                status: "onlyLocal".into(),
+                local_size: l.size,
+                remote_size: 0,
+                local_mtime: l.mtime,
+                remote_mtime: 0,
+            }),
+        }
+    }
+    for (rel, r) in remote_map {
+        out.push(DiffEntry {
+            rel,
+            status: "onlyRemote".into(),
+            local_size: 0,
+            remote_size: r.size,
+            local_mtime: 0,
+            remote_mtime: r.mtime,
+        });
+    }
+
+    // Diferenças primeiro; iguais ficam no fim, para conferência.
+    out.sort_by(|a, b| {
+        let rank = |s: &str| match s {
+            "onlyLocal" => 0,
+            "onlyRemote" => 1,
+            "differs" => 2,
+            _ => 3,
+        };
+        rank(&a.status)
+            .cmp(&rank(&b.status))
+            .then_with(|| a.rel.cmp(&b.rel))
+    });
+    Ok(out)
 }
 
 /// Evento emitido pelo watcher do "editar localmente" a cada gravação enviada

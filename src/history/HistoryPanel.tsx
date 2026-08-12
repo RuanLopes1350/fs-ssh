@@ -2,12 +2,14 @@ import { useMemo, useState } from "react";
 import {
   BookmarkPlus,
   CornerDownLeft,
+  FileDown,
   Globe,
   History,
   Play,
   Server,
   Trash2,
 } from "lucide-react";
+import { save } from "@tauri-apps/plugin-dialog";
 
 import { ConfirmDialog } from "../components/Dialogs";
 import { api } from "../lib/ipc";
@@ -69,6 +71,26 @@ export function HistoryPanel({
     else type(entry.command, true);
   };
 
+  /**
+   * Exporta a lista visível em JSON — o formato que se anexa a um ticket sem
+   * ninguém precisar recortar da tela.
+   */
+  const exportJson = async () => {
+    const stamp = new Date().toISOString().slice(0, 19).replaceAll(":", "-");
+    const dest = await save({ defaultPath: `historico-${stamp}.json` });
+    if (!dest) return;
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      scope: onlyThis ? connectionName : "todos os servidores",
+      commands: items.map((e) => ({
+        at: e.at,
+        connection: e.connectionName,
+        command: e.command,
+      })),
+    };
+    await api.exportText(dest, JSON.stringify(payload, null, 2));
+  };
+
   /** Comando bom vira snippet — o histórico é volátil, o snippet não. */
   const saveSnippet = (entry: CommandEntry) => {
     void (async () => {
@@ -105,6 +127,14 @@ export function HistoryPanel({
           onClick={() => setOnlyThis((v) => !v)}
         >
           {onlyThis ? <Server size={14} /> : <Globe size={14} />}
+        </button>
+        <button
+          className="icon-btn"
+          title="Exportar o que está listado em JSON"
+          disabled={items.length === 0}
+          onClick={() => void exportJson()}
+        >
+          <FileDown size={14} />
         </button>
         <button
           className="icon-btn"

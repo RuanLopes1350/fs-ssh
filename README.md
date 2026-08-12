@@ -35,6 +35,12 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 
 ### SFTP
 - Painel dual-pane local ↔ remoto com **drag & drop**, upload/download com **resume** e barras de progresso.
+- **Fila de transferências** com duas em paralelo, **pausar e retomar** (a pausa chega ao laço de cópia no Rust; retomar continua de onde parou) e **histórico em SQLite** que sobrevive ao fechar do painel.
+- **Comparar pastas** recursivamente (tamanho + data) com prévia do que difere e **sincronização em um clique** nos dois sentidos, criando os diretórios que faltarem.
+- **Busca remota** por nome (`find -iname`), com profundidade escolhida e resultado navegável.
+- **Conferir cópia por SHA-256** nas duas pontas — o hash remoto é calculado no servidor, só ele trafega.
+- **Compactar e extrair no servidor** (tar.gz, tar.bz2, tar.xz, tar, zip, gz) sem baixar nada.
+- **Favoritos de diretório** por conexão, para os dois lados.
 - Listas **virtualizadas** — diretórios com milhares de arquivos não travam.
 - Colunas de permissões, tamanho e data; dono/grupo no tooltip.
 - mkdir, renomear, excluir e **chmod** (grade rwx + octal) em diálogos próprios.
@@ -49,6 +55,15 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 - Lista os containers do host conectado — ou da própria máquina, no terminal local — via canal exec, sem instalar nada no servidor.
 - **Iniciar, parar, reiniciar e excluir**, com confirmação nas ações que derrubam serviço e o erro do docker mostrado na íntegra.
 - "Shell no container" e "logs": o comando é digitado no terminal, à vista.
+
+### Sistema do host (remoto e local)
+- Painel (⌘⇧S) com seis abas, todas pelo canal exec — nada instalado no servidor:
+- **Resumo**: sistema, kernel, uptime, carga, **CPU, memória, swap e discos** em barras, atualizado sozinho a cada 5s. No Linux o uso de CPU vem de duas amostras de `/proc/stat`; no macOS/BSD, da soma do `%cpu` do `ps`.
+- **Serviços** (systemd): unidades com **falhas primeiro**, filtro, start/stop/restart com confirmação e `journalctl -u … -f` digitado no terminal.
+- **Processos**: lista ordenada por CPU, filtro por comando/usuário/pid, **SIGTERM e SIGKILL** com confirmação.
+- **Portas**: o que está escutando (`ss`, `netstat` ou `lsof`), com processo e pid — e um clique **cria e liga o túnel -L** para aquela porta.
+- **Updates**: pacotes pendentes (apt, dnf, yum, apk, pacman, brew) e aviso de reboot necessário.
+- **Log**: cauda de qualquer arquivo do host com filtro literal e modo "seguir" (poll de 2s, sem prender canal).
 
 ### Rede do host (remoto e local)
 - Painel (⌘⇧N) com a configuração de rede da máquina conectada: **IP, máscara, gateway e DNS**, mais MAC, IPv6 e domínios de busca — lido por um canal exec só, sem digitar nada no terminal.
@@ -66,8 +81,13 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 - **Editor de temas** com preview ao vivo e **importação de `.itermcolors`**.
 - Tema por conexão.
 
+### Auditoria
+- **Gravação em asciicast (.cast)** além do texto puro: guarda o timing de tudo que passou pela tela e é reproduzível no **player embutido** (play/pause, seek, 1×–8×, pausas longas comprimidas) — ou em qualquer player de asciinema.
+- **Exportar a sessão em HTML** com as cores como estão na tela (⤓ na barra), e **exportar o histórico de comandos em JSON** — o que se anexa a um ticket de incidente.
+- **Modo somente leitura**: por conexão ou destravável no cadeado da barra. A trava é do **backend** — teclado, snippets, histórico e broadcast entram todos pelo mesmo `ssh_write` e são recusados juntos.
+
 ### Gravação, logs e diagnóstico
-- **Gravar sessão** (manual ou automática): a saída do terminal vira arquivo de texto sem códigos de escape, com permissão 0600; a lista permite ver e apagar.
+- **Gravar sessão** (manual ou automática): a saída do terminal vira arquivo de texto sem códigos de escape, com permissão 0600; a lista permite ver, exportar e apagar.
 - **Tela de logs** com filtro por **período, conexão, nível e texto** — conexões, túneis, gravações e falhas; o log bruto do `tracing` fica em outra aba.
 - **Hosts conhecidos**: fingerprints confirmados, com opção de esquecer.
 
@@ -75,7 +95,7 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 - Barra lateral **recolhível só com ícones** (⌘B) alinhada à mesma grade da lista expandida, ou escondida por completo (⌘⇧B).
 - **Focus mode** (⌘⇧F): tela cheia só com o terminal.
 - Barra de abas com rolagem própria e ações sempre fixas; a aba ativa entra em vista ao navegar pelo teclado.
-- Painéis laterais (arquivos, containers, rede, túneis, histórico) são **por sessão** — o que está aberto num servidor não vaza para outro.
+- Painéis laterais (arquivos, containers, rede, sistema, túneis, histórico) são **por sessão** — o que está aberto num servidor não vaza para outro.
 - Diálogos com foco preso e devolvido, ARIA em abas e botões, foco visível para teclado e respeito a `prefers-reduced-motion`.
 
 ### Segurança
@@ -107,6 +127,7 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 | ⌘E | Painel de arquivos (SFTP) |
 | ⌘⇧C | Painel de containers |
 | ⌘⇧N | Painel de rede (IP, máscara, gateway, DNS) |
+| ⌘⇧S | Painel de sistema (carga, memória, disco, serviços, portas) |
 | ⌘⇧T | Painel de túneis |
 | ⌘⇧H | Painel de histórico de comandos |
 | ⌘⇧M | Chaves, snippets, temas, gravações e logs |

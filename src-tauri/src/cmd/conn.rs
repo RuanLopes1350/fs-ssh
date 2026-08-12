@@ -152,6 +152,7 @@ pub fn sshconfig_import(
             icon: "server".into(),
             theme_id: None,
             is_production: false,
+            read_only: false,
             notes: format!("importado de ~/.ssh/config (Host {})", h.alias),
             created_at: String::new(),
             last_used_at: None,

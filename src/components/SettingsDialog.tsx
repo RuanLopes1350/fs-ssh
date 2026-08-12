@@ -119,8 +119,26 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       {check(
         "autoRecord",
         "Gravar todas as sessões automaticamente",
-        "Salva a saída do terminal em arquivos de texto (0600) na pasta de gravações. Cuidado: registra tudo que aparece na tela, inclusive segredos. As gravações ficam no painel de gestão → Gravações.",
+        "Salva a saída do terminal em arquivos (0600) na pasta de gravações. Cuidado: registra tudo que aparece na tela, inclusive segredos. As gravações ficam no painel de gestão → Gravações.",
       )}
+
+      <div className="field" style={{ maxWidth: 260 }}>
+        <label>Formato da gravação</label>
+        <select
+          value={settings.recordFormat}
+          onChange={(e) =>
+            setSettings({ recordFormat: e.target.value as "text" | "cast" })
+          }
+        >
+          <option value="text">Texto legível (.log)</option>
+          <option value="cast">asciicast com replay (.cast)</option>
+        </select>
+        <span className="muted" style={{ fontSize: 11 }}>
+          O texto sai sem códigos de cor, bom para ler e pesquisar. O asciicast guarda o
+          tempo de cada saída e é reproduzível no player embutido (e em qualquer player
+          de asciinema) — é o formato para auditoria.
+        </span>
+      </div>
 
       <div
         style={{
