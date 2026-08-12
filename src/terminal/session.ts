@@ -13,6 +13,16 @@ import type { AppError, SessionInfo, TerminalPalette } from "../lib/types";
 
 const encoder = new TextEncoder();
 
+/** Marcadores do bracketed paste, que o xterm põe em volta do texto colado. */
+const PASTE_START = "\x1b[200~";
+const PASTE_END = "\x1b[201~";
+
+/** Folga para o eco do comando chegar e o xterm desenhá-lo antes da conferência. */
+const ECHO_GRACE_MS = 250;
+
+/** Fins de prompt conhecidos, usados até a sessão revelar o dela. */
+const PROMPT_ENDS = ["❯ ", "➜ ", "$ ", "% ", "# ", "> "];
+
 /**
  * Um terminal vivo.
  *
@@ -37,6 +47,13 @@ export class TerminalSession {
   /** `connect` pode ser chamado de novo após o diálogo de senha; os listeners de
    *  input só podem ser registrados uma vez, senão cada tecla é enviada N vezes. */
   private inputWired = false;
+
+  /** Linha sendo digitada, remontada a partir do que sai do teclado. */
+  private line = "";
+  /** A linha sofreu uma edição que não sabemos reproduzir (setas, ⇥, ⌃R). */
+  private lineDirty = false;
+  /** Fim do prompt desta sessão, aprendido com as linhas digitadas inteiras. */
+  private promptEnd: string | null = null;
 
   constructor(
     readonly connectionId: string,
@@ -115,6 +132,7 @@ export class TerminalSession {
       this.inputWired = true;
 
       this.term.onData((data) => {
+        this.trackInput(data);
         this.send(Array.from(encoder.encode(data)));
       });
 
@@ -126,6 +144,126 @@ export class TerminalSession {
     }
 
     return info;
+  }
+
+  /**
+   * Reconstrói a linha digitada para alimentar o histórico de comandos.
+   *
+   * O que o servidor recebe é tecla a tecla; o eco vem de volta pelo shell.
+   * Montar a linha aqui dá o texto exato quando ela é só digitada. Edição que
+   * só o shell sabe fazer — ↑, ⇥, ⌃R — marca a linha como "suja": o texto certo
+   * passa a ser o da tela, e é de lá que ele é recuperado no `commitLine`.
+   */
+  private trackInput(data: string) {
+    // Colagem entre marcadores (bracketed paste): o texto vai para a linha como
+    // se tivesse sido digitado. Com quebra de linha no meio o shell mostra tudo
+    // junto e só executa no Enter — aí o buffer daqui não valeria.
+    if (data.startsWith(PASTE_START)) {
+      const text = data.slice(PASTE_START.length).replace(PASTE_END, "");
+      if (/[\r\n]/.test(text)) this.lineDirty = true;
+      else this.line += text;
+      return;
+    }
+    // Sequência de escape (setas, F-keys, histórico do shell): a linha real
+    // passa a ser a do shell, não a daqui.
+    if (data.charCodeAt(0) === 0x1b) {
+      this.lineDirty = true;
+      return;
+    }
+    for (const ch of data) {
+      const code = ch.charCodeAt(0);
+      if (ch === "\r" || ch === "\n") {
+        this.commitLine();
+      } else if (code === 0x7f || ch === "\b") {
+        this.line = this.line.slice(0, -1);
+      } else if (ch === "\x03" || ch === "\x15") {
+        // ⌃C e ⌃U jogam a linha fora — inclusive o que já não sabíamos seguir.
+        this.line = "";
+        this.lineDirty = false;
+      } else if (code < 0x20) {
+        // ⇥ completa, ⌃R busca, ⌃W apaga palavra: tudo muda a linha no shell.
+        this.lineDirty = true;
+      } else {
+        this.line += ch;
+      }
+    }
+  }
+
+  /** Enter: manda a linha para o histórico, se ela for confiável. */
+  private commitLine() {
+    const typed = this.line.trim();
+    const dirty = this.lineDirty;
+    this.line = "";
+    this.lineDirty = false;
+    if (!commandSink) return;
+    // Dentro de um TUI (vim, htop, less) o Enter não é um comando de shell.
+    if (this.term.buffer.active.type === "alternate") return;
+    if (!dirty && !typed) return;
+
+    // A linha submetida fica onde está: o Enter só move o cursor para a de
+    // baixo. Guardamos o índice absoluto dela (vale mesmo depois de rolar) e
+    // lemos a tela daqui a pouco — no instante da tecla ela ainda não tem o
+    // texto, porque o eco vem do servidor e o xterm ainda processa a escrita
+    // em lote. Era isso que fazia comando curto (`ls`) não entrar.
+    const buf = this.term.buffer.active;
+    const row = buf.baseY + buf.cursorY;
+    window.setTimeout(() => {
+      if (this.closed || !commandSink) return;
+      const shown = this.lineAt(row);
+      const command = dirty ? this.afterPrompt(shown) : this.confirmTyped(shown, typed);
+      if (!command || command.length > 400) return;
+      commandSink(this.connectionId, command);
+    }, ECHO_GRACE_MS);
+  }
+
+  /** Texto da linha lógica que termina em `row`, juntando o que quebrou. */
+  private lineAt(row: number): string {
+    // Buffer normal e não o ativo: o comando pode ter aberto um TUI, e aí a
+    // tela ativa é a alternativa — a linha digitada continua na de baixo.
+    const buf = this.term.buffer.normal;
+    let start = row;
+    while (start > 0 && buf.getLine(start)?.isWrapped) start--;
+    let text = "";
+    for (let y = start; y <= row; y++) {
+      // Só a última corta o espaço à direita: as de cima vão até a borda, e
+      // aparar ali comeria um espaço do próprio comando na dobra da linha.
+      text += buf.getLine(y)?.translateToString(y === row) ?? "";
+    }
+    return text;
+  }
+
+  /**
+   * Linha digitada do começo ao fim: o texto é o que remontamos das teclas, e a
+   * tela só confirma que ele foi ecoado. Prompt de senha não ecoa nada — é essa
+   * conferência que impede a senha do sudo de cair no histórico.
+   *
+   * De quebra, aprende onde o prompt deste servidor termina, para conseguir
+   * recortar as linhas que não dá para remontar.
+   */
+  private confirmTyped(shown: string, typed: string): string | null {
+    const at = shown.indexOf(typed);
+    if (at < 0) return null;
+    const prompt = shown.slice(0, at);
+    this.promptEnd = PROMPT_ENDS.find((end) => prompt.endsWith(end)) ?? this.promptEnd;
+    return typed;
+  }
+
+  /**
+   * Linha que o shell editou por conta própria (↑ do histórico, ⇥, ⌃R): as
+   * teclas não dizem o que ficou nela, então o comando é o que está na tela
+   * depois do fim do prompt.
+   *
+   * Sem um fim de prompt reconhecível não registra nada — e é o que mantém a
+   * senha fora daqui, porque "Password:" e "[sudo] password for x:" não têm um.
+   */
+  private afterPrompt(shown: string): string | null {
+    const ends = this.promptEnd ? [this.promptEnd] : PROMPT_ENDS;
+    let cut = -1;
+    for (const end of ends) {
+      const at = shown.indexOf(end);
+      if (at >= 0 && (cut < 0 || at + end.length < cut)) cut = at + end.length;
+    }
+    return cut < 0 ? null : shown.slice(cut).trim() || null;
   }
 
   private send(bytes: number[]) {
@@ -269,6 +407,16 @@ let inputRouter: ((sessionId: string, bytes: number[]) => void) | null = null;
 
 export function setInputRouter(fn: typeof inputRouter) {
   inputRouter = fn;
+}
+
+/**
+ * Destino dos comandos digitados (o histórico). Módulo, pelo mesmo motivo do
+ * `inputRouter`: o terminal vive fora da árvore React.
+ */
+let commandSink: ((connectionId: string, command: string) => void) | null = null;
+
+export function setCommandSink(fn: typeof commandSink) {
+  commandSink = fn;
 }
 
 export function isAuthPrompt(e: AppError) {

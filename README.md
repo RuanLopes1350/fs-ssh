@@ -50,6 +50,12 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 - **Iniciar, parar, reiniciar e excluir**, com confirmação nas ações que derrubam serviço e o erro do docker mostrado na íntegra.
 - "Shell no container" e "logs": o comando é digitado no terminal, à vista.
 
+### Histórico de comandos
+- Painel (⌘⇧H) com os comandos digitados no terminal: **clicar roda de novo** na sessão ativa, ou o ⏎ ao lado escreve sem executar, para editar antes.
+- Ordem do `history` do shell: **do mais recente para o mais antigo**, com filtro por texto e alternância entre **só este servidor** e todos.
+- Qualquer linha vira **snippet** num clique; em painel PROD a reexecução pede confirmação mostrando o comando.
+- Comando digitado inteiro é remontado do teclado; comando trazido do ↑, completado com ⇥ ou achado no ⌃R é lido da tela, depois do fim do prompt (que a sessão aprende sozinha). **Senha não entra**: prompt de senha não ecoa nem tem fim de prompt, então não sobra o que registrar. Pode ser desligado e limpo nas configurações.
+
 ### Temas
 - **25 temas embutidos** com as paletas oficiais do [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes): Dracula, Nord, Tokyo Night Storm, Catppuccin (Mocha/Macchiato/Latte), Atom One Dark, Gruvbox (Dark/Light), Solarized (Dark/Light), Kanagawa, Everforest, Rosé Pine, Night Owl, Ayu (Dark/Mirage), GitHub (Dark/Light), Monokai, Material Ocean, Tomorrow Night, Snazzy, Cobalt2 e um vermelho para produção.
 - **Editor de temas** com preview ao vivo e **importação de `.itermcolors`**.
@@ -64,7 +70,7 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 - Barra lateral **recolhível só com ícones** (⌘B) alinhada à mesma grade da lista expandida, ou escondida por completo (⌘⇧B).
 - **Focus mode** (⌘⇧F): tela cheia só com o terminal.
 - Barra de abas com rolagem própria e ações sempre fixas; a aba ativa entra em vista ao navegar pelo teclado.
-- Painéis laterais (arquivos, containers, túneis) são **por sessão** — o que está aberto num servidor não vaza para outro.
+- Painéis laterais (arquivos, containers, túneis, histórico) são **por sessão** — o que está aberto num servidor não vaza para outro.
 - Diálogos com foco preso e devolvido, ARIA em abas e botões, foco visível para teclado e respeito a `prefers-reduced-motion`.
 
 ### Segurança
@@ -96,6 +102,7 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 | ⌘E | Painel de arquivos (SFTP) |
 | ⌘⇧C | Painel de containers |
 | ⌘⇧T | Painel de túneis |
+| ⌘⇧H | Painel de histórico de comandos |
 | ⌘⇧M | Chaves, snippets, temas, gravações e logs |
 | ⌘⇧R | Gravar a sessão |
 | ⌘+ / ⌘− | Aumentar / diminuir a fonte |

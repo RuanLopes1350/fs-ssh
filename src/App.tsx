@@ -31,6 +31,7 @@ import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { ConnectionSheet, EMPTY_CONNECTION } from "./connections/ConnectionSheet";
 import { ManagePanel } from "./connections/ManagePanel";
 import { DockerPanel } from "./docker/DockerPanel";
+import { HistoryPanel } from "./history/HistoryPanel";
 import { api, asAppError } from "./lib/ipc";
 import { LOCAL_CONNECTION_ID } from "./lib/types";
 import type {
@@ -44,7 +45,12 @@ import { TooltipProvider } from "./components/ui/tooltip";
 import { SftpPanel } from "./sftp/SftpPanel";
 import { Sidebar } from "./sidebar/Sidebar";
 import { TunnelsPanel } from "./tunnels/TunnelsPanel";
-import { setInputRouter, TerminalSession, terminals } from "./terminal/session";
+import {
+  setCommandSink,
+  setInputRouter,
+  TerminalSession,
+  terminals,
+} from "./terminal/session";
 import { PanePicker } from "./terminal/PanePicker";
 import { TerminalSearchBar } from "./terminal/SearchBar";
 import { TerminalView } from "./terminal/TerminalView";
@@ -576,6 +582,9 @@ export default function App() {
       } else if ((e.key === "t" || e.key === "T") && e.shiftKey) {
         e.preventDefault();
         store.togglePanel("tunnels");
+      } else if ((e.key === "h" || e.key === "H") && e.shiftKey) {
+        e.preventDefault();
+        store.togglePanel("history");
       } else if ((e.key === "m" || e.key === "M") && e.shiftKey) {
         e.preventDefault();
         setManaging((v) => !v);
@@ -638,6 +647,15 @@ export default function App() {
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({ inline: "nearest", block: "nearest" });
   }, [activeTabId]);
+
+  // Todo comando digitado em qualquer terminal vai para o histórico (o próprio
+  // store respeita a preferência de não registrar).
+  useEffect(() => {
+    setCommandSink((connectionId, command) =>
+      useAppStore.getState().recordCommand(connectionId, command),
+    );
+    return () => setCommandSink(null);
+  }, []);
 
   // Zoom aplicado a todos os terminais abertos.
   useEffect(() => {
@@ -1056,6 +1074,16 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              aria-label="Histórico de comandos (⌘⇧H)"
+              data-active={openPanel === "history"}
+              disabled={!activePane?.sessionId}
+              title="Comandos digitados nesta sessão — clique para rodar de novo (⌘⇧H)"
+              onClick={() => useAppStore.getState().togglePanel("history")}
+            >
+              <History size={14} />
+            </button>
+            <button
+              className="icon-btn"
               aria-label="Focus mode — tela cheia só com o terminal (⌘⇧F)"
               data-active={focusMode}
               title="Focus mode — tela cheia só com o terminal (⌘⇧F)"
@@ -1112,6 +1140,14 @@ export default function App() {
               key={activePane.sessionId}
               sessionId={activePane.sessionId}
               local={isLocalPane}
+            />
+          )}
+          {openPanel === "history" && activePane?.sessionId && (
+            <HistoryPanel
+              sessionId={activePane.sessionId}
+              connectionId={activePane.connectionId}
+              connectionName={activePane.title}
+              isProduction={activePane.isProduction}
             />
           )}
           {openPanel === "tunnels" && remoteSessionId && activePane && (

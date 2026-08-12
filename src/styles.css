@@ -1466,6 +1466,72 @@ textarea:focus {
   flex: none;
 }
 
+/* Histórico de comandos: mesma moldura do painel de containers. */
+.history {
+  width: 32%;
+  min-width: 320px;
+}
+
+.history__search {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.history__search input {
+  width: 100%;
+  font-size: 12px;
+}
+
+/* Os botões da linha só aparecem no hover: com quatro deles em cada item, a
+   lista viraria uma parede de ícones. */
+.history__item .icon-btn {
+  opacity: 0;
+}
+
+.history__item:hover .icon-btn,
+.history__item:focus-within .icon-btn {
+  opacity: 1;
+}
+
+/* O comando inteiro é o alvo do clique — mirar num ▶ de 13px não. */
+.history__cmd {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.history__text {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history__meta {
+  font-size: 10px;
+}
+
+/* Comando no diálogo de confirmação de produção: legível e sem quebrar fora. */
+.history__preview {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* ------------------------------------------------------- acessibilidade */
 
 /* Foco sempre visível para quem navega por teclado — o padrão do WebKit some
@@ -1549,6 +1615,11 @@ textarea:focus {
 
   .docker {
     width: 32%;
+    min-width: 260px;
+  }
+
+  .history {
+    width: 30%;
     min-width: 260px;
   }
 }

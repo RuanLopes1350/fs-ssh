@@ -41,8 +41,22 @@ export interface Pane {
 
 export type SplitDir = "row" | "col";
 
-/** Painel lateral da sessão: arquivos, containers ou túneis. */
-export type PanelKind = "sftp" | "docker" | "tunnels" | null;
+/** Painel lateral da sessão: arquivos, containers, túneis ou histórico. */
+export type PanelKind = "sftp" | "docker" | "tunnels" | "history" | null;
+
+/** Um comando digitado no terminal, guardado para ser rodado de novo. */
+export interface CommandEntry {
+  id: string;
+  command: string;
+  connectionId: string;
+  /** Nome do servidor na hora em que o comando rodou (a conexão pode sumir). */
+  connectionName: string;
+  /** ISO de quando o comando foi digitado. */
+  at: string;
+}
+
+/** Teto do histórico: acima disso o mais antigo sai. */
+const HISTORY_LIMIT = 1000;
 
 /** Árvore binária de layout: folha = painel, nó = divisão com proporção. */
 export type PaneLayout =
@@ -70,6 +84,8 @@ export interface Settings {
   localShell: string;
   /** Escurecer os painéis sem foco quando a aba está dividida. */
   dimInactivePanes: boolean;
+  /** Guardar os comandos digitados no terminal (painel de histórico). */
+  recordHistory: boolean;
 }
 
 /** Conexão sintética do terminal local — nunca vai para o banco. */
@@ -205,6 +221,9 @@ interface AppStore {
   collapsedFolders: string[];
   settings: Settings;
 
+  /** Comandos digitados, do mais recente para o mais antigo (como o `history`). */
+  history: CommandEntry[];
+
   /** Conexões abertas na última sessão do app — base da restauração. */
   lastSessionConnectionIds: string[];
 
@@ -246,6 +265,12 @@ interface AppStore {
   toggleFolderCollapsed: (id: string) => void;
   setSettings: (patch: Partial<Settings>) => void;
   clearLastSession: () => void;
+
+  /** Registra um comando digitado, no topo da lista. */
+  recordCommand: (connectionId: string, command: string) => void;
+  removeCommand: (id: string) => void;
+  /** Limpa o histórico todo, ou só o de um servidor. */
+  clearHistory: (connectionId?: string) => void;
 }
 
 export const useAppStore = create<AppStore>()(
@@ -274,7 +299,9 @@ export const useAppStore = create<AppStore>()(
         autoRecord: false,
         localShell: "",
         dimInactivePanes: true,
+        recordHistory: true,
       },
+      history: [],
       lastSessionConnectionIds: [],
 
       loadAll: async () => {
@@ -469,19 +496,73 @@ export const useAppStore = create<AppStore>()(
         })),
       setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
       clearLastSession: () => set({ lastSessionConnectionIds: [] }),
+
+      recordCommand: (connectionId, command) =>
+        set((s) => {
+          if (!s.settings.recordHistory) return {};
+          const at = new Date().toISOString();
+          const last = s.history[0];
+          // Como o `history` do shell com `ignoredups`: a lista é cronológica,
+          // do mais recente para o mais antigo, e repetir o comando só atualiza
+          // a hora da linha do topo em vez de empilhar `ls` três vezes.
+          if (last && last.command === command && last.connectionId === connectionId) {
+            return { history: [{ ...last, at }, ...s.history.slice(1)] };
+          }
+          const entry: CommandEntry = {
+            id: crypto.randomUUID(),
+            command,
+            connectionId,
+            connectionName:
+              connectionId === LOCAL_CONNECTION_ID
+                ? LOCAL_CONNECTION.name
+                : (s.connections.find((c) => c.id === connectionId)?.name ?? "servidor"),
+            at,
+          };
+          return { history: [entry, ...s.history].slice(0, HISTORY_LIMIT) };
+        }),
+
+      removeCommand: (id) => set((s) => ({ history: s.history.filter((h) => h.id !== id) })),
+
+      clearHistory: (connectionId) =>
+        set((s) => ({
+          history: connectionId
+            ? s.history.filter((h) => h.connectionId !== connectionId)
+            : [],
+        })),
     }),
     {
       name: "fs-ssh-ui",
-      // Só preferências e o snapshot da sessão — nunca dados do catálogo (vêm
-      // do SQLite) nem segredos.
+      // Só preferências, o snapshot da sessão e o histórico de comandos — nunca
+      // dados do catálogo (vêm do SQLite) nem segredos. O histórico guarda o que
+      // foi digitado no prompt (senha não passa por aqui: o terminal só registra
+      // linha que apareceu na tela) e pode ser desligado/limpo nas configurações.
       partialize: (s) => ({
         fontSize: s.fontSize,
         sidebarOpen: s.sidebarOpen,
         sidebarRail: s.sidebarRail,
         collapsedFolders: s.collapsedFolders,
         settings: s.settings,
+        history: s.history,
         lastSessionConnectionIds: s.lastSessionConnectionIds,
       }),
+      // O merge padrão do persist é raso: o `settings` gravado por uma versão
+      // antiga do app substituía o objeto inteiro, e toda preferência nova
+      // nascia `undefined` — foi o que apagou o `recordHistory` de quem já
+      // tinha o app instalado (o painel abria dizendo que estava desligado).
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<AppStore>;
+        return {
+          ...current,
+          ...saved,
+          settings: { ...current.settings, ...saved.settings },
+          // Linhas gravadas antes de o histórico virar cronológico traziam
+          // `lastAt` em vez de `at`; sem isto elas apareceriam sem data.
+          history: (saved.history ?? []).map((h) => ({
+            ...h,
+            at: h.at ?? (h as { lastAt?: string }).lastAt ?? new Date().toISOString(),
+          })),
+        };
+      },
     },
   ),
 );

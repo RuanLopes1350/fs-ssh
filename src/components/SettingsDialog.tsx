@@ -112,6 +112,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         "Numa aba dividida, o painel que não recebe o teclado fica levemente escurecido (passar o mouse já clareia). O painel em foco mostra uma etiqueta com o nome do servidor, que some sozinha.",
       )}
       {check(
+        "recordHistory",
+        "Guardar o histórico de comandos",
+        "Registra as linhas digitadas no prompt para reexecutar pelo painel de histórico (⌘⇧H). Fica salvo neste computador; senhas não entram (só é guardado o que o servidor ecoou na tela). Use o ícone de lixeira do painel para apagar.",
+      )}
+      {check(
         "autoRecord",
         "Gravar todas as sessões automaticamente",
         "Salva a saída do terminal em arquivos de texto (0600) na pasta de gravações. Cuidado: registra tudo que aparece na tela, inclusive segredos. As gravações ficam no painel de gestão → Gravações.",
