@@ -50,6 +50,11 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 - **Iniciar, parar, reiniciar e excluir**, com confirmação nas ações que derrubam serviço e o erro do docker mostrado na íntegra.
 - "Shell no container" e "logs": o comando é digitado no terminal, à vista.
 
+### Rede do host (remoto e local)
+- Painel (⌘⇧N) com a configuração de rede da máquina conectada: **IP, máscara, gateway e DNS**, mais MAC, IPv6 e domínios de busca — lido por um canal exec só, sem digitar nada no terminal.
+- Fala `ip` (Linux) e `ifconfig`/`netstat` (macOS/BSD); com **systemd-resolved**, mostra os servidores que respondem de verdade, não o stub em `127.0.0.53`.
+- Cada valor **copia com um clique**; interfaces sem endereço ficam escondidas atrás de um "mostrar mais".
+
 ### Histórico de comandos
 - Painel (⌘⇧H) com os comandos digitados no terminal: **clicar roda de novo** na sessão ativa, ou o ⏎ ao lado escreve sem executar, para editar antes.
 - Ordem do `history` do shell: **do mais recente para o mais antigo**, com filtro por texto e alternância entre **só este servidor** e todos.
@@ -70,7 +75,7 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 - Barra lateral **recolhível só com ícones** (⌘B) alinhada à mesma grade da lista expandida, ou escondida por completo (⌘⇧B).
 - **Focus mode** (⌘⇧F): tela cheia só com o terminal.
 - Barra de abas com rolagem própria e ações sempre fixas; a aba ativa entra em vista ao navegar pelo teclado.
-- Painéis laterais (arquivos, containers, túneis, histórico) são **por sessão** — o que está aberto num servidor não vaza para outro.
+- Painéis laterais (arquivos, containers, rede, túneis, histórico) são **por sessão** — o que está aberto num servidor não vaza para outro.
 - Diálogos com foco preso e devolvido, ARIA em abas e botões, foco visível para teclado e respeito a `prefers-reduced-motion`.
 
 ### Segurança
@@ -101,6 +106,7 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 | ⌘F | Buscar no scrollback |
 | ⌘E | Painel de arquivos (SFTP) |
 | ⌘⇧C | Painel de containers |
+| ⌘⇧N | Painel de rede (IP, máscara, gateway, DNS) |
 | ⌘⇧T | Painel de túneis |
 | ⌘⇧H | Painel de histórico de comandos |
 | ⌘⇧M | Chaves, snippets, temas, gravações e logs |

@@ -41,8 +41,8 @@ export interface Pane {
 
 export type SplitDir = "row" | "col";
 
-/** Painel lateral da sessão: arquivos, containers, túneis ou histórico. */
-export type PanelKind = "sftp" | "docker" | "tunnels" | "history" | null;
+/** Painel lateral da sessão: arquivos, containers, rede, túneis ou histórico. */
+export type PanelKind = "sftp" | "docker" | "net" | "tunnels" | "history" | null;
 
 /** Um comando digitado no terminal, guardado para ser rodado de novo. */
 export interface CommandEntry {

@@ -31,6 +31,7 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
     items: [
       ["⌘E", "Arquivos (SFTP)"],
       ["⌘⇧C", "Containers Docker/Podman"],
+      ["⌘⇧N", "Rede do host (IP, máscara, gateway, DNS)"],
       ["⌘⇧T", "Túneis (port forwarding)"],
       ["⌘⇧H", "Histórico de comandos (clique roda de novo)"],
       ["⌘⇧M", "Chaves, snippets, temas, gravações e logs"],

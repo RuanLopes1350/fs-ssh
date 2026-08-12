@@ -13,6 +13,7 @@ import type {
   LocalEntry,
   LogEntry,
   LogQuery,
+  NetInfo,
   Progress,
   RemoteEntry,
   SessionInfo,
@@ -142,6 +143,7 @@ export const api = {
     action: "start" | "stop" | "restart" | "rm",
     container: string,
   ) => invoke<void>("docker_action", { sessionId, action, container }),
+  netInfo: (sessionId: string) => invoke<NetInfo>("net_info", { sessionId }),
 
   // ------------------------------------------------------------------ sftp
 

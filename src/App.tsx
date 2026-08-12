@@ -10,6 +10,7 @@ import {
   Maximize2,
   Minimize2,
   Minus,
+  Network,
   PanelLeft,
   Plug,
   Plus,
@@ -33,6 +34,7 @@ import { ManagePanel } from "./connections/ManagePanel";
 import { DockerPanel } from "./docker/DockerPanel";
 import { HistoryPanel } from "./history/HistoryPanel";
 import { api, asAppError } from "./lib/ipc";
+import { NetworkPanel } from "./network/NetworkPanel";
 import { LOCAL_CONNECTION_ID } from "./lib/types";
 import type {
   AppError,
@@ -579,6 +581,10 @@ export default function App() {
       } else if ((e.key === "c" || e.key === "C") && e.shiftKey) {
         e.preventDefault();
         store.togglePanel("docker");
+      } else if (e.key === "N" && e.shiftKey) {
+        // ⌘N (sem shift) já é "nova conexão" — a rede fica no ⌘⇧N.
+        e.preventDefault();
+        store.togglePanel("net");
       } else if ((e.key === "t" || e.key === "T") && e.shiftKey) {
         e.preventDefault();
         store.togglePanel("tunnels");
@@ -1060,6 +1066,20 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
+              aria-label="Rede do host (⌘⇧N)"
+              data-active={openPanel === "net"}
+              disabled={!activePane?.sessionId}
+              title={
+                isLocalPane
+                  ? "Rede desta máquina: IP, máscara, gateway e DNS (⌘⇧N)"
+                  : "Rede deste host: IP, máscara, gateway e DNS (⌘⇧N)"
+              }
+              onClick={() => useAppStore.getState().togglePanel("net")}
+            >
+              <Network size={14} />
+            </button>
+            <button
+              className="icon-btn"
               aria-label="Painel de túneis"
               data-active={openPanel === "tunnels"}
               disabled={isLocalPane || !activePane?.sessionId}
@@ -1137,6 +1157,13 @@ export default function App() {
           )}
           {openPanel === "docker" && activePane?.sessionId && (
             <DockerPanel
+              key={activePane.sessionId}
+              sessionId={activePane.sessionId}
+              local={isLocalPane}
+            />
+          )}
+          {openPanel === "net" && activePane?.sessionId && (
+            <NetworkPanel
               key={activePane.sessionId}
               sessionId={activePane.sessionId}
               local={isLocalPane}

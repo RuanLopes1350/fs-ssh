@@ -243,6 +243,38 @@ export interface DockerContainer {
   running: boolean;
 }
 
+/** Um endereço de uma interface, com prefixo e (em IPv4) máscara decimal. */
+export interface NetAddr {
+  addr: string;
+  prefix: number;
+  /** "255.255.255.0" — vazio em IPv6, onde só o prefixo se usa. */
+  netmask: string;
+}
+
+export interface NetInterface {
+  name: string;
+  mac: string;
+  /** Interface com a flag `UP`. */
+  up: boolean;
+  ipv4: NetAddr[];
+  ipv6: NetAddr[];
+}
+
+export interface NetRoute {
+  gateway: string;
+  /** Interface por onde a rota sai; vazio quando o sistema não informa. */
+  iface: string;
+}
+
+/** Configuração de rede do host da sessão, lida por um exec só. */
+export interface NetInfo {
+  hostname: string;
+  interfaces: NetInterface[];
+  gateways: NetRoute[];
+  dns: string[];
+  search: string[];
+}
+
 /** Evento `edit-saved`: o watcher do "editar localmente" gravou no servidor. */
 export interface EditSaved {
   sessionId: string;

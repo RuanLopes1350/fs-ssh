@@ -1,6 +1,7 @@
 pub mod conn;
 pub mod forward;
 pub mod keys;
+pub mod net;
 pub mod record;
 pub mod sftp;
 pub mod ssh;

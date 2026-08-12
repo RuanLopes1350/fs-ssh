@@ -1466,6 +1466,115 @@ textarea:focus {
   flex: none;
 }
 
+/* Rede do host: mesma moldura do painel de containers, conteúdo em fichas. */
+.netinfo {
+  width: 30%;
+  min-width: 300px;
+}
+
+.netinfo__block,
+.netinfo__iface {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.netinfo__block {
+  background: var(--bg-hover);
+}
+
+.netinfo__iface-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.netinfo__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.netinfo__label {
+  flex: none;
+  width: 60px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.netinfo__values {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+/* Valor copiável: parece texto até o ponteiro chegar perto. */
+.netinfo__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px;
+  margin: 0 -4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+  word-break: break-all;
+}
+
+.netinfo__value svg {
+  opacity: 0;
+  flex: none;
+}
+
+.netinfo__value:hover {
+  background: var(--bg-raised);
+}
+
+.netinfo__value:hover svg,
+.netinfo__value:focus-visible svg {
+  opacity: 0.7;
+}
+
+.netinfo__mac {
+  font-size: 11px;
+}
+
+.netinfo__empty {
+  font-size: 11px;
+}
+
+.netinfo__more {
+  width: 100%;
+  padding: 8px;
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.netinfo__more:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
 /* Histórico de comandos: mesma moldura do painel de containers. */
 .history {
   width: 32%;
@@ -1619,6 +1728,11 @@ textarea:focus {
   }
 
   .history {
+    width: 30%;
+    min-width: 260px;
+  }
+
+  .netinfo {
     width: 30%;
     min-width: 260px;
   }
