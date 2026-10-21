@@ -18,6 +18,7 @@ import type {
   NetInfo,
   Progress,
   RemoteEntry,
+  RemotePubkey,
   SessionInfo,
   SftpBookmark,
   Snippet,
@@ -280,6 +281,8 @@ export const api = {
     invoke<void>("keys_add_to_agent", { path, passphrase, useKeychain }),
   keysInstallOnHost: (sessionId: string, identityId: string) =>
     invoke<void>("keys_install_on_host", { sessionId, identityId }),
+  keysRemoteList: (sessionId: string) =>
+    invoke<RemotePubkey[]>("keys_remote_list", { sessionId }),
 };
 
 export { Channel };

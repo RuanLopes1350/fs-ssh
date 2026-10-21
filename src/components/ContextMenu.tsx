@@ -6,6 +6,8 @@ export interface MenuItem {
   icon?: React.ReactNode;
   danger?: boolean;
   separatorBefore?: boolean;
+  /** Linha informativa: aparece no menu, mas não é clicável. */
+  disabled?: boolean;
   onSelect: () => void;
 }
 
@@ -94,6 +96,7 @@ export function ContextMenu({
           className="ctxmenu__item"
           data-danger={item.danger}
           data-sep={item.separatorBefore}
+          disabled={item.disabled}
           // Ação primeiro, fechamento depois: `onClose` desmonta este componente
           // e não deve poder interromper o que o item ia fazer.
           onClick={() => {

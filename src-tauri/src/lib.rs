@@ -47,6 +47,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             // Sobras de crash de execuções anteriores podem conter segredos
             // (askpass, arquivos do "editar localmente").
@@ -164,6 +165,7 @@ pub fn run() {
             cmd::keys::keys_generate,
             cmd::keys::keys_add_to_agent,
             cmd::keys::keys_install_on_host,
+            cmd::keys::keys_remote_list,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar a aplicação");

@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
+import { CopyPubkeyButton } from "./components/CopyPubkeyButton";
 import { AuthDialog, ConfirmDialog, HostKeyDialog, Spinner } from "./components/Dialogs";
 import { ConnIcon } from "./components/Icon";
 import { ShortcutsDialog } from "./components/ShortcutsDialog";
@@ -1180,6 +1181,11 @@ export default function App() {
             >
               <Gauge size={14} />
             </button>
+            <CopyPubkeyButton
+              key={activePane?.sessionId ?? "none"}
+              sessionId={activePane?.sessionId}
+              local={isLocalPane}
+            />
             <button
               className="icon-btn"
               aria-label="Painel de túneis"

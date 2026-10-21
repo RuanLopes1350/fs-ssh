@@ -98,6 +98,16 @@ export interface SessionClosed {
   reason: string;
 }
 
+/** Chave pública no `~/.ssh` do host da sessão. */
+export interface RemotePubkey {
+  path: string;
+  keyType: string;
+  fingerprint: string;
+  comment: string;
+  /** Linha OpenSSH completa. */
+  pubkey: string;
+}
+
 export interface KnownHost {
   host: string;
   port: number;

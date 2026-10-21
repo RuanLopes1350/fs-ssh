@@ -644,8 +644,13 @@ textarea:focus {
   color: var(--text);
 }
 
-.ctxmenu__item:hover {
+.ctxmenu__item:hover:not(:disabled) {
   background: var(--bg-hover);
+}
+
+.ctxmenu__item:disabled {
+  color: var(--text-faint);
+  cursor: default;
 }
 
 .ctxmenu__item[data-danger="true"] {
