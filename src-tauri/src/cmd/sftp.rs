@@ -577,6 +577,7 @@ pub async fn sftp_edit_local(
 
 /// Cria o diretório já com 0700 — sem janela em que fique legível por outros.
 fn create_private_dir(dir: &Path) -> AppResult<()> {
+    #[allow(unused_mut)]
     let mut b = std::fs::DirBuilder::new();
     #[cfg(unix)]
     {

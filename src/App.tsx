@@ -40,7 +40,7 @@ import { DockerPanel } from "./docker/DockerPanel";
 import { HistoryPanel } from "./history/HistoryPanel";
 import { api, asAppError } from "./lib/ipc";
 import { NetworkPanel } from "./network/NetworkPanel";
-import { LOCAL_CONNECTION_ID } from "./lib/types";
+import { LOCAL_CONNECTION_ID, WSL_CONNECTION_ID } from "./lib/types";
 import type {
   AppError,
   AuthPrompt,
@@ -179,13 +179,17 @@ export default function App() {
           detail: null,
           reconnectAttempt: 0,
         };
+        const shell =
+          connection.id === WSL_CONNECTION_ID
+            ? store.settings.wslShell?.trim() || "wsl ~"
+            : store.settings.localShell;
         terminals.set(
           paneId,
           new TerminalSession(
             connection.id,
             store.paletteFor(connection.id),
             store.fontSize,
-            store.settings.localShell,
+            shell,
           ),
         );
         const where = placement.current ?? { type: "newtab" as const };
@@ -199,13 +203,17 @@ export default function App() {
         // Retry ou painel vazio do split escolhendo servidor: garante o
         // terminal e assume a identidade visual da conexão escolhida.
         if (!terminals.has(paneId)) {
+          const shell =
+            connection.id === WSL_CONNECTION_ID
+              ? store.settings.wslShell?.trim() || "wsl ~"
+              : store.settings.localShell;
           terminals.set(
             paneId,
             new TerminalSession(
               connection.id,
               store.paletteFor(connection.id),
               store.fontSize,
-              store.settings.localShell,
+              shell,
             ),
           );
         }
@@ -454,8 +462,10 @@ export default function App() {
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
   const activePane = activePaneOf(activeTab);
-  /** SFTP e túneis exigem canais SSH; containers valem também para a máquina local. */
-  const isLocalPane = activePane?.connectionId === LOCAL_CONNECTION_ID;
+  /** SFTP e túneis exigem canais SSH; containers valem também para a máquina local e WSL. */
+  const isLocalPane =
+    activePane?.connectionId === LOCAL_CONNECTION_ID ||
+    activePane?.connectionId === WSL_CONNECTION_ID;
   const remoteSessionId =
     activePane?.sessionId && !isLocalPane ? activePane.sessionId : null;
   /** Painel lateral desta sessão — cada aba/painel guarda o seu. */

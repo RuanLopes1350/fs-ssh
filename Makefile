@@ -1,8 +1,9 @@
 # fs-ssh — atalhos de desenvolvimento e build.
 #
-#   make            app com hot-reload (o mesmo que `make dev`)
-#   make build      gera .app e .dmg em src-tauri/target/release/bundle/
-#   make install    instala/atualiza o .app em /Applications
+#   make                app com hot-reload (o mesmo que `make dev`)
+#   make build          gera o bundle/instalador nativo do SO atual
+#   make build-windows  gera .exe e instalador NSIS (x86_64-pc-windows-gnu)
+#   make install        instala o app (macOS: /Applications, Linux: ~/.local/bin)
 #
 # Rode `make help` para a lista completa.
 
@@ -11,74 +12,92 @@ SHELL := /usr/bin/env bash
 # `cargo test | tail` esconderia a falha do cargo atrás do êxito do tail.
 .SHELLFLAGS := -eu -o pipefail -c
 
-# O cargo mora em ~/.cargo/bin e nem todo shell carrega o ~/.cargo/env — sem
-# isto o `pnpm tauri dev` falha com "cargo: command not found" mesmo com o Rust
-# instalado.
-export PATH := $(HOME)/.cargo/bin:$(PATH)
+# O cargo mora em ~/.cargo/bin (e utilitários como nasm podem estar em ~/.local/bin).
+export PATH := $(HOME)/.local/bin:$(HOME)/.cargo/bin:$(PATH)
+
+UNAME_S := $(shell uname -s)
+PKG_MGR := $(shell command -v pnpm >/dev/null 2>&1 && echo pnpm || echo npm)
+PKG_EXEC := $(shell command -v pnpm >/dev/null 2>&1 && echo pnpm || echo npx)
 
 TAURI_DIR := src-tauri
 BUNDLE_DIR := $(TAURI_DIR)/target/release/bundle
 APP := $(BUNDLE_DIR)/macos/fs-ssh.app
 INSTALL_DIR := /Applications
+LINUX_BIN := $(TAURI_DIR)/target/release/fs-ssh
 
 # Container do sshd usado pelos testes de integração.
 SSHD_NAME := fs-ssh-test
 SSHD_PORT := 2222
 
 .DEFAULT_GOAL := dev
-.PHONY: dev build install check typecheck test test-ssh sshd fmt clean distclean help tools
+.PHONY: dev build build-windows install check typecheck test test-ssh sshd fmt clean distclean help tools
 
 # ---------------------------------------------------------------- pré-requisitos
 
-## Confere se cargo e pnpm estão no PATH.
+## Confere se cargo e pnpm/npm estão no PATH.
 tools:
 	@missing=0; \
-	for bin in cargo pnpm; do \
-	  command -v $$bin >/dev/null 2>&1 || { echo "erro: '$$bin' não encontrado no PATH" >&2; missing=1; }; \
-	done; \
+	command -v cargo >/dev/null 2>&1 || { echo "erro: 'cargo' não encontrado no PATH" >&2; missing=1; }; \
+	if ! command -v pnpm >/dev/null 2>&1 && ! command -v npm >/dev/null 2>&1; then \
+	  echo "erro: nem 'pnpm' nem 'npm' encontrados no PATH" >&2; missing=1; \
+	fi; \
 	if [ $$missing -eq 1 ]; then \
 	  echo >&2; \
-	  echo "  Rust:  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh" >&2; \
-	  echo "  pnpm:  brew install pnpm" >&2; \
+	  echo "  Rust:      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh" >&2; \
+	  echo "  pnpm/npm:  instale Node.js + npm ou pnpm" >&2; \
 	  exit 1; \
 	fi
 
-# Alvo de arquivo, não .PHONY: só reinstala quando o manifesto ou o lock mudam.
+# Alvo de arquivo, não .PHONY: só reinstala quando o manifesto muda.
 # O `touch` existe porque o pnpm nem sempre atualiza o mtime do diretório, e sem
 # ele o make reinstalaria tudo a cada invocação.
-node_modules: package.json pnpm-lock.yaml | tools
-	@echo "▸ instalando dependências do frontend…"
-	pnpm install
+node_modules: package.json | tools
+	@echo "▸ instalando dependências do frontend com $(PKG_MGR)…"
+	$(PKG_MGR) install
 	@touch node_modules
 
 # ------------------------------------------------------------------- comandos
 
 ## App em modo de desenvolvimento, com hot-reload.
 dev: node_modules
-	pnpm tauri dev
+	$(PKG_EXEC) tauri dev
 
-## Bundle de release: .app e .dmg em src-tauri/target/release/bundle/.
+## Bundle de release nativo do sistema operacional atual.
 build: node_modules
-	pnpm tauri build
+	$(PKG_EXEC) tauri build --ignore-version-mismatches
 
-## Copia o .app recém-buildado para /Applications (fecha o app aberto antes).
+## Cross-compilation / build do instalador Windows (x86_64-pc-windows-gnu).
+build-windows: node_modules
+	$(PKG_EXEC) tauri build --target x86_64-pc-windows-gnu --ignore-version-mismatches
+
+## Instala o app (macOS: /Applications; Linux: ~/.local/bin/fs-ssh).
 install: build
-	@if pgrep -f '$(INSTALL_DIR)/fs-ssh.app' >/dev/null 2>&1; then \
-	  echo "▸ fechando o fs-ssh em execução…"; \
-	  osascript -e 'quit app "fs-ssh"' >/dev/null 2>&1 || true; \
-	  sleep 2; \
+	@if [ "$(UNAME_S)" = "Darwin" ]; then \
+	  if pgrep -f '$(INSTALL_DIR)/fs-ssh.app' >/dev/null 2>&1; then \
+	    echo "▸ fechando o fs-ssh em execução…"; \
+	    osascript -e 'quit app "fs-ssh"' >/dev/null 2>&1 || true; \
+	    sleep 2; \
+	  fi; \
+	  echo "▸ instalando em $(INSTALL_DIR)…"; \
+	  rm -rf "$(INSTALL_DIR)/fs-ssh.app"; \
+	  cp -R "$(APP)" "$(INSTALL_DIR)/"; \
+	  echo "▸ instalado: $$(defaults read "$(INSTALL_DIR)/fs-ssh.app/Contents/Info.plist" CFBundleShortVersionString)"; \
+	elif [ "$(UNAME_S)" = "Linux" ]; then \
+	  mkdir -p "$(HOME)/.local/bin"; \
+	  cp "$(LINUX_BIN)" "$(HOME)/.local/bin/fs-ssh"; \
+	  chmod +x "$(HOME)/.local/bin/fs-ssh"; \
+	  echo "▸ binário instalado em $(HOME)/.local/bin/fs-ssh"; \
+	  echo "▸ pacotes (.deb/.rpm/.AppImage) disponíveis em $(BUNDLE_DIR)"; \
+	else \
+	  echo "▸ execute o instalador gerado em $(BUNDLE_DIR)"; \
 	fi
-	@echo "▸ instalando em $(INSTALL_DIR)…"
-	rm -rf "$(INSTALL_DIR)/fs-ssh.app"
-	cp -R "$(APP)" "$(INSTALL_DIR)/"
-	@echo "▸ instalado: $$(defaults read "$(INSTALL_DIR)/fs-ssh.app/Contents/Info.plist" CFBundleShortVersionString)"
 
 ## Typecheck do TypeScript + cargo check.
 check: typecheck
 	cd $(TAURI_DIR) && cargo check --all-targets
 
 typecheck: node_modules
-	pnpm typecheck
+	$(PKG_MGR) run typecheck
 
 ## Testes unitários do Rust (parsers de rede, sistema, ssh_config, banco).
 test: | tools

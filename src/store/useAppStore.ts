@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 
 import { api } from "../lib/ipc";
 import { terminals } from "../terminal/session";
-import { LOCAL_CONNECTION_ID } from "../lib/types";
+import { LOCAL_CONNECTION_ID, WSL_CONNECTION_ID } from "../lib/types";
 import type {
   Connection,
   Folder,
@@ -82,8 +82,12 @@ export interface Settings {
   autoReconnect: boolean;
   /** Gravar a saída de toda sessão nova automaticamente. */
   autoRecord: boolean;
-  /** Shell do terminal local; vazio usa o `$SHELL` do sistema. */
+  /** Shell do terminal local; vazio usa o `$SHELL` do sistema (ou PowerShell no Windows). */
   localShell: string;
+  /** Comando do WSL; vazio usa `wsl ~`. */
+  wslShell: string;
+  /** Exibir atalho dedicado ao WSL na barra lateral. */
+  showWslInSidebar: boolean;
   /** Escurecer os painéis sem foco quando a aba está dividida. */
   dimInactivePanes: boolean;
   /** Guardar os comandos digitados no terminal (painel de histórico). */
@@ -112,6 +116,28 @@ export const LOCAL_CONNECTION: Connection = {
   isProduction: false,
   readOnly: false,
   notes: "",
+  createdAt: "",
+  lastUsedAt: null,
+  useCount: 0,
+};
+
+/** Conexão sintética do WSL (Linux no Windows) — nunca vai para o banco. */
+export const WSL_CONNECTION: Connection = {
+  id: WSL_CONNECTION_ID,
+  name: "WSL (Linux)",
+  host: "wsl",
+  port: 0,
+  username: "",
+  authMethod: "auto",
+  identityId: null,
+  jumpHostId: null,
+  folderId: null,
+  color: "#e95420",
+  icon: "ubuntu",
+  themeId: null,
+  isProduction: false,
+  readOnly: false,
+  notes: "Subsistema Windows para Linux",
   createdAt: "",
   lastUsedAt: null,
   useCount: 0,
@@ -203,7 +229,7 @@ function snapshotSession(tabs: Tab[]): string[] {
     ...new Set(
       tabs
         .flatMap((t) => t.panes.map((p) => p.connectionId))
-        .filter((id) => id && id !== LOCAL_CONNECTION_ID),
+        .filter((id) => id && id !== LOCAL_CONNECTION_ID && id !== WSL_CONNECTION_ID),
     ),
   ];
 }
@@ -234,6 +260,9 @@ interface AppStore {
 
   /** Conexões abertas na última sessão do app — base da restauração. */
   lastSessionConnectionIds: string[];
+
+  /** Disponibilidade de WSL no sistema (detectada via backend). */
+  wslAvailable: boolean;
 
   loadAll: () => Promise<void>;
   reloadConnections: () => Promise<void>;
@@ -306,12 +335,16 @@ export const useAppStore = create<AppStore>()(
         autoReconnect: true,
         autoRecord: false,
         localShell: "",
+        wslShell: "",
+        showWslInSidebar: true,
         dimInactivePanes: true,
         recordHistory: true,
         recordFormat: "text",
       },
       history: [],
       lastSessionConnectionIds: [],
+      wslAvailable:
+        typeof navigator !== "undefined" && /win/i.test(navigator.userAgent),
 
       loadAll: async () => {
         const [connections, folders, themes, snippets] = await Promise.all([
@@ -324,6 +357,10 @@ export const useAppStore = create<AppStore>()(
         // A varredura de chaves toca o disco e o agente; fica fora do Promise.all
         // para não atrasar a primeira pintura da lista de conexões.
         void get().reloadIdentities();
+        void api
+          .wslInfo()
+          .then((info) => set({ wslAvailable: info.available }))
+          .catch(() => {});
       },
 
       reloadConnections: async () => {
@@ -524,7 +561,9 @@ export const useAppStore = create<AppStore>()(
             connectionName:
               connectionId === LOCAL_CONNECTION_ID
                 ? LOCAL_CONNECTION.name
-                : (s.connections.find((c) => c.id === connectionId)?.name ?? "servidor"),
+                : connectionId === WSL_CONNECTION_ID
+                  ? WSL_CONNECTION.name
+                  : (s.connections.find((c) => c.id === connectionId)?.name ?? "servidor"),
             at,
           };
           return { history: [entry, ...s.history].slice(0, HISTORY_LIMIT) };

@@ -75,9 +75,19 @@ fn identity_from_key(key: &PrivateKey, path: &Path, source: &str) -> Identity {
     }
 }
 
+#[cfg(unix)]
+pub async fn connect_agent() -> Result<AgentClient<tokio::net::UnixStream>, russh::keys::Error> {
+    AgentClient::connect_env().await
+}
+
+#[cfg(windows)]
+pub async fn connect_agent() -> Result<AgentClient<tokio::net::windows::named_pipe::NamedPipeClient>, russh::keys::Error> {
+    AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await
+}
+
 /// Chaves atualmente carregadas no ssh-agent, por fingerprint.
 pub async fn agent_fingerprints() -> Vec<String> {
-    let Ok(mut agent) = AgentClient::connect_env().await else {
+    let Ok(mut agent) = connect_agent().await else {
         return Vec::new();
     };
     let Ok(ids) = agent.request_identities().await else {
@@ -96,7 +106,7 @@ pub async fn agent_fingerprints() -> Vec<String> {
 /// Chaves que só existem dentro do agente (sem arquivo correspondente em
 /// `~/.ssh`) — típico de chaves vindas de smartcard, 1Password ou Secretive.
 pub async fn agent_only_identities(known: &[Identity]) -> Vec<Identity> {
-    let Ok(mut agent) = AgentClient::connect_env().await else {
+    let Ok(mut agent) = connect_agent().await else {
         return Vec::new();
     };
     let Ok(ids) = agent.request_identities().await else {
@@ -197,7 +207,7 @@ fn set_mode(_path: &Path, _mode: u32) -> AppResult<()> {
 pub async fn add_to_agent(
     path: &str,
     passphrase: Option<&str>,
-    use_keychain: bool,
+    _use_keychain: bool,
 ) -> AppResult<()> {
     let ssh_dir = ssh_dir()?;
     let canonical = std::fs::canonicalize(path)?;
@@ -206,7 +216,8 @@ pub async fn add_to_agent(
     }
 
     let mut cmd = tokio::process::Command::new("ssh-add");
-    if use_keychain {
+    #[cfg(target_os = "macos")]
+    if _use_keychain {
         cmd.arg("--apple-use-keychain");
     }
     cmd.arg(&canonical);
@@ -244,6 +255,9 @@ impl Drop for AskpassGuard {
 fn write_askpass(passphrase: &str) -> AppResult<PathBuf> {
     use std::io::Write;
 
+    #[cfg(windows)]
+    let path = std::env::temp_dir().join(format!("fs-ssh-askpass-{}.cmd", uuid::Uuid::new_v4()));
+    #[cfg(not(windows))]
     let path = std::env::temp_dir().join(format!("fs-ssh-askpass-{}", uuid::Uuid::new_v4()));
     // A passphrase passa por um arquivo temporário de vida curta em vez da
     // linha de comando, que seria visível para qualquer processo via `ps`.
@@ -257,10 +271,18 @@ fn write_askpass(passphrase: &str) -> AppResult<PathBuf> {
         opts.mode(0o700);
     }
     let mut f = opts.open(&path)?;
-    writeln!(f, "#!/bin/sh")?;
-    writeln!(f, "cat <<'FS_SSH_EOF'")?;
-    writeln!(f, "{passphrase}")?;
-    writeln!(f, "FS_SSH_EOF")?;
+    #[cfg(windows)]
+    {
+        writeln!(f, "@echo off")?;
+        writeln!(f, "echo {passphrase}")?;
+    }
+    #[cfg(not(windows))]
+    {
+        writeln!(f, "#!/bin/sh")?;
+        writeln!(f, "cat <<'FS_SSH_EOF'")?;
+        writeln!(f, "{passphrase}")?;
+        writeln!(f, "FS_SSH_EOF")?;
+    }
     Ok(path)
 }
 

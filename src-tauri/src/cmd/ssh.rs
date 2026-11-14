@@ -260,6 +260,7 @@ pub async fn local_open(
     cols: u16,
     rows: u16,
     shell: Option<String>,
+    connection_id: Option<String>,
     on_output: IpcChannel<InvokeResponseBody>,
 ) -> AppResult<SessionInfo> {
     let session_id = SessionManager::new_id();
@@ -272,10 +273,22 @@ pub async fn local_open(
         on_output,
     )?;
 
+    let conn_id = connection_id.unwrap_or_else(|| crate::local::LOCAL_CONNECTION_ID.to_string());
+    let host_name = if conn_id == crate::local::WSL_CONNECTION_ID {
+        "wsl".to_string()
+    } else {
+        "localhost".to_string()
+    };
+    let log_title = if conn_id == crate::local::WSL_CONNECTION_ID {
+        "WSL (Linux)"
+    } else {
+        "Terminal local"
+    };
+
     let info = SessionInfo {
         session_id: session_id.clone(),
-        connection_id: crate::local::LOCAL_CONNECTION_ID.to_string(),
-        host: "localhost".into(),
+        connection_id: conn_id,
+        host: host_name,
         username: std::env::var("USER").unwrap_or_else(|_| "local".into()),
         fingerprint: String::new(),
         banner: None,
@@ -290,8 +303,8 @@ pub async fn local_open(
         "info",
         "local",
         None,
-        "Terminal local",
-        &format!("shell local aberto ({shell_path})"),
+        log_title,
+        &format!("shell aberto ({shell_path})"),
     );
 
     let sessions = state.sessions.clone();
@@ -468,4 +481,74 @@ pub async fn ssh_ping(state: State<'_, AppState>, session_id: String) -> AppResu
         .await
         .map(|_| ())
         .map_err(|_| AppError::NoSession(session_id))
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WslInfo {
+    pub available: bool,
+    pub distros: Vec<String>,
+    pub default_distro: Option<String>,
+}
+
+#[tauri::command]
+pub fn wsl_info() -> WslInfo {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let wsl_path = std::path::Path::new(r"C:\Windows\System32\wsl.exe");
+        if !wsl_path.exists() {
+            return WslInfo {
+                available: false,
+                distros: vec![],
+                default_distro: None,
+            };
+        }
+
+        let output = Command::new(wsl_path)
+            .args(["-l", "-q"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        let distros: Vec<String> = match output {
+            Ok(out) if out.status.success() => {
+                let text = if out.stdout.len() >= 2
+                    && (out.stdout[1] == 0 || (out.stdout[0] == 0xff && out.stdout[1] == 0xfe))
+                {
+                    let u16_chars: Vec<u16> = out
+                        .stdout
+                        .chunks_exact(2)
+                        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                        .filter(|&c| c != 0xfeff && c != 0)
+                        .collect();
+                    String::from_utf16_lossy(&u16_chars)
+                } else {
+                    String::from_utf8_lossy(&out.stdout).to_string()
+                };
+                text.lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty())
+                    .collect()
+            }
+            _ => vec![],
+        };
+
+        let default_distro = distros.first().cloned();
+
+        WslInfo {
+            available: true,
+            distros,
+            default_distro,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        WslInfo {
+            available: false,
+            distros: vec![],
+            default_distro: None,
+        }
+    }
 }

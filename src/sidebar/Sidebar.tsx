@@ -25,6 +25,7 @@ import {
   activePaneOf,
   filterConnections,
   LOCAL_CONNECTION,
+  WSL_CONNECTION,
   useAppStore,
 } from "../store/useAppStore";
 import type { Connection, Folder } from "../lib/types";
@@ -55,6 +56,11 @@ export function Sidebar(props: SidebarProps) {
   const toggleFolderCollapsed = useAppStore((s) => s.toggleFolderCollapsed);
   const reloadFolders = useAppStore((s) => s.reloadFolders);
   const reloadConnections = useAppStore((s) => s.reloadConnections);
+  const showWslInSidebar = useAppStore(
+    (s) =>
+      (s.wslAvailable && s.settings.showWslInSidebar !== false) ||
+      s.settings.wslShell.trim() !== "",
+  );
 
   const [menu, setMenu] = useState<{ conn: Connection; at: MenuPosition } | null>(null);
   const [folderMenu, setFolderMenu] = useState<{ folder: Folder; at: MenuPosition } | null>(
@@ -326,6 +332,18 @@ export function Sidebar(props: SidebarProps) {
               <ConnIcon name={LOCAL_CONNECTION.icon} size={16} color={LOCAL_CONNECTION.color} />
             </button>
           </Tooltip>
+          {showWslInSidebar && (
+            <Tooltip content={<span className="whitespace-nowrap">WSL (Linux)</span>}>
+              <button
+                className="rail__item"
+                data-active={activeConnectionId === WSL_CONNECTION.id}
+                style={{ color: WSL_CONNECTION.color }}
+                onClick={() => props.onConnect(WSL_CONNECTION)}
+              >
+                <ConnIcon name={WSL_CONNECTION.icon} size={16} color={WSL_CONNECTION.color} />
+              </button>
+            </Tooltip>
+          )}
           {railList.map((c) => (
             <Tooltip
               key={c.id}
@@ -416,26 +434,47 @@ export function Sidebar(props: SidebarProps) {
         aria-label="Conexões"
         onKeyDown={onListKeyDown}
       >
-        {/* Fixo no topo: o shell da própria máquina, sempre a um clique. */}
+        {/* Fixo no topo: o shell da própria máquina e WSL, sempre a um clique. */}
         <button
           className="conn"
           data-conn-row
           role="listitem"
           data-active={activeConnectionId === LOCAL_CONNECTION.id}
           onClick={() => props.onConnect(LOCAL_CONNECTION)}
-          title="Abrir um shell nesta máquina"
+          title="Abrir um shell nesta máquina (PowerShell / Host)"
         >
           <ConnIcon name={LOCAL_CONNECTION.icon} color={LOCAL_CONNECTION.color} size={16} />
           <span className="conn__body">
             <span className="conn__name">
               <span className="conn__label">{LOCAL_CONNECTION.name}</span>
             </span>
-            <span className="conn__host">shell desta máquina</span>
+            <span className="conn__host">shell local da máquina</span>
           </span>
           {activeConnectionId === LOCAL_CONNECTION.id && (
             <span className="conn__active-dot" />
           )}
         </button>
+        {showWslInSidebar && (
+          <button
+            className="conn"
+            data-conn-row
+            role="listitem"
+            data-active={activeConnectionId === WSL_CONNECTION.id}
+            onClick={() => props.onConnect(WSL_CONNECTION)}
+            title="Abrir um terminal WSL (Linux no Windows)"
+          >
+            <ConnIcon name={WSL_CONNECTION.icon} color={WSL_CONNECTION.color} size={16} />
+            <span className="conn__body">
+              <span className="conn__name">
+                <span className="conn__label">{WSL_CONNECTION.name}</span>
+              </span>
+              <span className="conn__host">subsistema linux</span>
+            </span>
+            {activeConnectionId === WSL_CONNECTION.id && (
+              <span className="conn__active-dot" />
+            )}
+          </button>
+        )}
         <div className="sidebar__divider" />
 
         {folders.map((f) => {

@@ -1,11 +1,35 @@
-# deps e builds
+# Dependências
 node_modules/
-dist/
-src-tauri/target/
 
-# gerados pelo tauri
+# Builds e artefatos de empacotamento (Frontend & Tauri/Rust)
+dist/
+dist-ssr/
+build/
+out/
+target/
+src-tauri/target/
+src-tauri/WixTools/
+.vite/
+*.tsbuildinfo
+
+# Gerados pelo Tauri
 src-tauri/gen/schemas/
 
-# sistema / editor
+# Arquivos de sistema operacional e editores
 .DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+
+# Logs e diagnósticos
 *.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Variáveis de ambiente locais
+.env
+.env.local
+.env.*.local

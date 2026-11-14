@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "app": "tauri dev",
-    "app:build": "tauri build",
+    "app:build": "tauri build --ignore-version-mismatches",
+    "app:build:windows": "tauri build --target x86_64-pc-windows-gnu --ignore-version-mismatches",
+    "app:build:linux": "tauri build --bundles deb,rpm,appimage --ignore-version-mismatches",
+    "app:build:macos": "tauri build --bundles app,dmg --ignore-version-mismatches",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

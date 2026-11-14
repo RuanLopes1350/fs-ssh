@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use russh::client::Handle;
-use russh::keys::agent::client::AgentClient;
 use russh::keys::agent::AgentIdentity;
 use russh::keys::{ssh_key, PrivateKeyWithHashAlg};
 
@@ -282,7 +281,7 @@ async fn try_agent(
     user: &str,
     identity: Option<&Identity>,
 ) -> AppResult<bool> {
-    let mut agent = AgentClient::connect_env()
+    let mut agent = crate::keys::connect_agent()
         .await
         .map_err(AppError::Key)?;
     let identities = agent.request_identities().await.map_err(AppError::Key)?;

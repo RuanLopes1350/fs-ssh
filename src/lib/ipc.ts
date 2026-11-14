@@ -104,9 +104,15 @@ export const api = {
 
   /** Abre um shell local com PTY — mesma interface de uma sessão SSH. */
   localOpen: (
-    args: { cols: number; rows: number; shell?: string },
+    args: { cols: number; rows: number; shell?: string; connectionId?: string },
     onOutput: Channel<ArrayBuffer>,
   ) => invoke<SessionInfo>("local_open", { ...args, onOutput }),
+
+  /** Detalhes de disponibilidade e distros do WSL no Windows. */
+  wslInfo: () =>
+    invoke<{ available: boolean; distros: string[]; defaultDistro: string | null }>(
+      "wsl_info",
+    ),
 
   sshWrite: (sessionId: string, data: number[]) =>
     invoke<void>("ssh_write", { sessionId, data }),

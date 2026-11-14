@@ -97,6 +97,7 @@ pub fn run() {
             cmd::ssh::ssh_ping,
             cmd::ssh::ssh_set_read_only,
             cmd::ssh::local_open,
+            cmd::ssh::wsl_info,
             cmd::ssh::ssh_exec,
             cmd::ssh::docker_ps,
             cmd::ssh::docker_action,

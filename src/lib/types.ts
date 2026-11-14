@@ -57,6 +57,11 @@ export interface Theme {
  */
 export const LOCAL_CONNECTION_ID = "__local__";
 
+/**
+ * Id da "conexão" sintética do WSL (Linux no Windows).
+ */
+export const WSL_CONNECTION_ID = "__wsl__";
+
 export type AuthMethod = "auto" | "agent" | "key" | "password";
 
 export interface Connection {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CornerDownLeft, Server, TerminalSquare } from "lucide-react";
 
 import { ConnIcon } from "./Icon";
-import { LOCAL_CONNECTION, useAppStore } from "../store/useAppStore";
+import { LOCAL_CONNECTION, WSL_CONNECTION, useAppStore } from "../store/useAppStore";
 import type { Connection, Snippet } from "../lib/types";
 
 export type PaletteAction =
@@ -33,6 +33,11 @@ export function CommandPalette({
 }) {
   const connections = useAppStore((s) => s.connections);
   const snippets = useAppStore((s) => s.snippets);
+  const showWsl = useAppStore(
+    (s) =>
+      (s.wslAvailable && s.settings.showWslInSidebar !== false) ||
+      s.settings.wslShell.trim() !== "",
+  );
   const [q, setQ] = useState("");
   const [index, setIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -43,11 +48,12 @@ export function CommandPalette({
     const query = q.trim().toLowerCase();
     const match = (s: string) => s.toLowerCase().includes(query);
 
+    const baseConns = showWsl ? [LOCAL_CONNECTION, WSL_CONNECTION] : [LOCAL_CONNECTION];
     const conns: PaletteAction[] =
       only === "snippets"
         ? []
-        : // O terminal local entra na lista como qualquer servidor.
-          [LOCAL_CONNECTION, ...connections]
+        : // O terminal local (e o WSL quando disponível) entram na lista como qualquer servidor.
+          [...baseConns, ...connections]
             .filter((c) => !query || match(c.name) || match(c.host) || match(c.username))
             .slice(0, 20)
             .map((connection) => ({ type: "connect", connection }));
@@ -60,7 +66,7 @@ export function CommandPalette({
       : [];
 
     return [...conns, ...snips];
-  }, [q, connections, snippets, hasSession, only]);
+  }, [q, connections, snippets, hasSession, only, showWsl]);
 
   useEffect(() => setIndex(0), [q]);
 
@@ -113,7 +119,9 @@ export function CommandPalette({
                     {item.connection.name}
                     <span className="muted">
                       {" "}
-                      {item.connection.username}@{item.connection.host}
+                      {item.connection.username
+                        ? `${item.connection.username}@${item.connection.host}`
+                        : item.connection.host}
                     </span>
                   </span>
                   {item.connection.isProduction && <span className="prod-badge">PROD</span>}

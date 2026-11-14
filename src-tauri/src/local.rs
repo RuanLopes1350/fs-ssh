@@ -25,6 +25,8 @@ const FLUSH_BYTES: usize = 64 * 1024;
 
 /// Id reservado para a conexão sintética do terminal local.
 pub const LOCAL_CONNECTION_ID: &str = "__local__";
+/// Id reservado para a conexão sintética do WSL.
+pub const WSL_CONNECTION_ID: &str = "__wsl__";
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,8 +42,30 @@ fn resolve_shell(requested: Option<&str>) -> String {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-        .or_else(|| std::env::var("SHELL").ok())
-        .unwrap_or_else(|| "/bin/zsh".into())
+        .or_else(|| {
+            #[cfg(windows)]
+            {
+                Some("powershell.exe".into())
+            }
+            #[cfg(not(windows))]
+            {
+                std::env::var("SHELL").ok()
+            }
+        })
+        .unwrap_or_else(|| {
+            #[cfg(windows)]
+            {
+                std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".into())
+            }
+            #[cfg(target_os = "macos")]
+            {
+                "/bin/zsh".into()
+            }
+            #[cfg(all(not(windows), not(target_os = "macos")))]
+            {
+                "/bin/bash".into()
+            }
+        })
 }
 
 /// Abre o shell num PTY e devolve o canal de comandos da sessão.
@@ -54,6 +78,25 @@ pub fn spawn(
     out: IpcChannel<InvokeResponseBody>,
 ) -> AppResult<(mpsc::Sender<SessionCmd>, String)> {
     let shell = resolve_shell(shell);
+    let parts = shlex::split(&shell).unwrap_or_else(|| vec![shell.clone()]);
+    let (prog, args) = parts
+        .split_first()
+        .map(|(p, a)| (p.as_str(), a))
+        .unwrap_or((shell.as_str(), &[]));
+
+    #[cfg(windows)]
+    let resolved_prog = if prog.eq_ignore_ascii_case("wsl") || prog.eq_ignore_ascii_case("wsl.exe") {
+        let system32_wsl = std::path::Path::new(r"C:\Windows\System32\wsl.exe");
+        if system32_wsl.exists() {
+            system32_wsl.to_string_lossy().to_string()
+        } else {
+            prog.to_string()
+        }
+    } else {
+        prog.to_string()
+    };
+    #[cfg(not(windows))]
+    let resolved_prog = prog.to_string();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -64,11 +107,17 @@ pub fn spawn(
         })
         .map_err(|e| AppError::msg(format!("não foi possível abrir o PTY: {e}")))?;
 
-    let mut cmd = CommandBuilder::new(&shell);
+    let mut cmd = CommandBuilder::new(&resolved_prog);
+    for arg in args {
+        cmd.arg(arg);
+    }
     // Shell de login: carrega ~/.zprofile, ~/.bash_profile e afins, senão o
     // PATH aqui não é o mesmo do Terminal.app e nada que o usuário instalou
-    // aparece.
-    cmd.arg("-l");
+    // aparece. (No Windows, cmd/powershell não aceitam -l).
+    #[cfg(not(windows))]
+    if args.is_empty() {
+        cmd.arg("-l");
+    }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "fs-ssh");
@@ -132,6 +181,7 @@ pub fn spawn(
     tauri::async_runtime::spawn(run_local_session(
         app,
         session_id,
+        shell.clone(),
         rx,
         out,
         out_rx,
@@ -147,6 +197,7 @@ pub fn spawn(
 async fn run_local_session(
     app: AppHandle,
     session_id: String,
+    shell_cmd: String,
     mut rx: mpsc::Receiver<SessionCmd>,
     out: IpcChannel<InvokeResponseBody>,
     mut out_rx: mpsc::Receiver<Vec<u8>>,
@@ -190,8 +241,9 @@ async fn run_local_session(
                 // containers funcionar no terminal local. Roda fora do PTY,
                 // como no SSH, para não sujar a tela do usuário.
                 Some(SessionCmd::Exec { command, reply }) => {
+                    let session_shell = shell_cmd.clone();
                     tokio::spawn(async move {
-                        let _ = reply.send(run_local_command(command).await);
+                        let _ = reply.send(run_local_command(session_shell, command).await);
                     });
                 }
                 // Recursos que só existem sobre SSH. A mensagem é explícita
@@ -261,16 +313,62 @@ async fn run_local_session(
 /// Tempo máximo de um exec local — mesmo teto do exec por SSH.
 const EXEC_TIMEOUT: Duration = Duration::from_secs(20);
 
+#[cfg(windows)]
+fn extract_wsl_distro(session_shell: &str) -> Option<String> {
+    let parts = shlex::split(session_shell)?;
+    for window in parts.windows(2) {
+        if window[0] == "-d" || window[0] == "--distribution" {
+            return Some(window[1].clone());
+        }
+    }
+    None
+}
+
 /// Executa um comando na máquina local e devolve `(código, stdout+stderr)`.
 ///
-/// Usa o shell em modo de login: sem isso o `PATH` não inclui `/usr/local/bin`
-/// nem o Homebrew, e o `docker` do usuário não seria encontrado.
-async fn run_local_command(command: String) -> Result<(u32, Vec<u8>), String> {
-    let shell = resolve_shell(None);
-    let run = tokio::process::Command::new(&shell)
-        .arg("-lc")
-        .arg(&command)
-        .output();
+/// No Unix usa o shell em modo de login (`-lc`) para carregar `/usr/local/bin`
+/// e Homebrew; no Windows delega silenciosamente para o WSL (`wsl.exe -- sh -lc`)
+/// quando disponível, permitindo que os painéis POSIX funcionem sem falhas.
+async fn run_local_command(session_shell: String, command: String) -> Result<(u32, Vec<u8>), String> {
+    let run = async {
+        #[cfg(windows)]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            let wsl_path = std::path::Path::new(r"C:\Windows\System32\wsl.exe");
+            if wsl_path.exists() {
+                let mut cmd = tokio::process::Command::new(wsl_path);
+                cmd.creation_flags(CREATE_NO_WINDOW);
+                if let Some(distro) = extract_wsl_distro(&session_shell) {
+                    cmd.args(["-d", &distro]);
+                }
+                cmd.args(["--", "sh", "-lc", &command]);
+                cmd.output().await
+            } else {
+                let mut cmd = tokio::process::Command::new("cmd.exe");
+                cmd.creation_flags(CREATE_NO_WINDOW);
+                cmd.args(["/C", &command]);
+                cmd.output().await
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = session_shell;
+            let shell = resolve_shell(None);
+            match tokio::process::Command::new(&shell)
+                .arg("-lc")
+                .arg(&command)
+                .output()
+                .await
+            {
+                Ok(out) => Ok(out),
+                Err(_) => tokio::process::Command::new("/bin/sh")
+                    .arg("-lc")
+                    .arg(&command)
+                    .output()
+                    .await,
+            }
+        }
+    };
 
     match tokio::time::timeout(EXEC_TIMEOUT, run).await {
         Ok(Ok(out)) => {

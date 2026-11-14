@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { DatabaseBackup } from "lucide-react";
+import { useEffect, useState } from "react";
+import { DatabaseBackup, Terminal } from "lucide-react";
 import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 
 import { Spinner } from "./Dialogs";
@@ -22,6 +22,15 @@ export function PreferencesTab() {
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupMsg, setBackupMsg] = useState<string | null>(null);
   const [backupErr, setBackupErr] = useState<string | null>(null);
+  const [wslInfo, setWslInfo] = useState<{
+    available: boolean;
+    distros: string[];
+    defaultDistro: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    api.wslInfo().then(setWslInfo).catch(() => {});
+  }, []);
 
   const backup = async () => {
     setBackupMsg(null);
@@ -65,11 +74,17 @@ export function PreferencesTab() {
     </label>
   );
 
+  const showWslSettings = Boolean(
+    wslInfo?.available ||
+      (typeof navigator !== "undefined" && /win/i.test(navigator.userAgent)) ||
+      settings.wslShell.trim() !== "",
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div className="row">
         <div className="field" style={{ maxWidth: 180 }}>
-          <label>Tamanho da fonte do terminal (⌘+ / ⌘−)</label>
+          <label>Tamanho da fonte (⌘+ / ⌘−)</label>
           <input
             type="number"
             min={9}
@@ -82,11 +97,80 @@ export function PreferencesTab() {
           <label>Shell do terminal local</label>
           <input
             value={settings.localShell}
-            placeholder="vazio = $SHELL do sistema"
+            placeholder="vazio = padrão (PowerShell no Windows / $SHELL no Unix)"
             onChange={(e) => setSettings({ localShell: e.target.value })}
           />
         </div>
+        {showWslSettings && (
+          <div className="field">
+            <label>Comando do WSL (Linux)</label>
+            <input
+              value={settings.wslShell}
+              placeholder="vazio = wsl ~; ex: wsl -d Ubuntu-26.04 ~"
+              onChange={(e) => setSettings({ wslShell: e.target.value })}
+            />
+          </div>
+        )}
       </div>
+
+      {wslInfo?.available && (
+        <div
+          style={{
+            fontSize: "0.85rem",
+            color: "var(--text-dim)",
+            padding: "8px 12px",
+            background: "var(--bg-subtle)",
+            borderRadius: 6,
+            border: "1px solid var(--border)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <Terminal size={14} style={{ color: "#e95420" }} />
+          <span>WSL detectado:</span>
+          {wslInfo.distros.length > 0 ? (
+            wslInfo.distros.map((d) => (
+              <button
+                key={d}
+                type="button"
+                className="btn btn--secondary"
+                style={{
+                  padding: "2px 8px",
+                  fontSize: "0.75rem",
+                  borderColor:
+                    settings.wslShell === `wsl -d ${d} ~` ? "#e95420" : undefined,
+                }}
+                onClick={() => setSettings({ wslShell: `wsl -d ${d} ~` })}
+              >
+                {d}
+              </button>
+            ))
+          ) : (
+            <span>(distribuição padrão ativa)</span>
+          )}
+          <button
+            type="button"
+            className="btn btn--secondary"
+            style={{
+              padding: "2px 8px",
+              fontSize: "0.75rem",
+              borderColor: !settings.wslShell ? "#e95420" : undefined,
+            }}
+            onClick={() => setSettings({ wslShell: "" })}
+          >
+            Padrão (wsl ~)
+          </button>
+        </div>
+      )}
+
+      {showWslSettings &&
+        check(
+          "showWslInSidebar",
+          "Exibir atalho do WSL na barra lateral",
+          "Mostra o botão dedicado 'WSL (Linux)' abaixo do Terminal local para abrir sem reconfigurar.",
+        )}
 
       {check(
         "restoreTabs",

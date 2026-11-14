@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 
 import { ConnIcon } from "../components/Icon";
-import { LOCAL_CONNECTION } from "../store/useAppStore";
+import { LOCAL_CONNECTION, WSL_CONNECTION, useAppStore } from "../store/useAppStore";
 import type { Connection } from "../lib/types";
 
 /**
@@ -24,6 +24,11 @@ export function PanePicker({
   onChoose: (c: Connection) => void;
   onCancel: () => void;
 }) {
+  const showWsl = useAppStore(
+    (s) =>
+      (s.wslAvailable && s.settings.showWslInSidebar !== false) ||
+      s.settings.wslShell.trim() !== "",
+  );
   const [q, setQ] = useState("");
   const [index, setIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -37,12 +42,13 @@ export function PanePicker({
       c.name.toLowerCase().includes(query) ||
       c.host.toLowerCase().includes(query) ||
       c.username.toLowerCase().includes(query);
-    const list = [LOCAL_CONNECTION, ...connections].filter(match);
+    const baseConns = showWsl ? [LOCAL_CONNECTION, WSL_CONNECTION] : [LOCAL_CONNECTION];
+    const list = [...baseConns, ...connections].filter(match);
     // Sessão de origem primeiro: Enter direto = duplicar.
     return [...list].sort((a, b) =>
       a.id === currentId ? -1 : b.id === currentId ? 1 : 0,
     );
-  }, [q, connections, currentId]);
+  }, [q, connections, currentId, showWsl]);
 
   useEffect(() => setIndex(0), [q]);
 
@@ -94,7 +100,7 @@ export function PanePicker({
                 {c.name}
                 <span className="muted">
                   {" "}
-                  {c.username}@{c.host}
+                  {c.username ? `${c.username}@${c.host}` : c.host}
                 </span>
               </span>
               {c.id === currentId && <span className="pane-picker__tag">sessão atual</span>}
