@@ -31,6 +31,7 @@ import type {
   Theme,
   Transfer,
   WalkEntry,
+  WslDistro,
 } from "./types";
 
 /**
@@ -102,11 +103,13 @@ export const api = {
     onOutput: Channel<ArrayBuffer>,
   ) => invoke<SessionInfo>("ssh_connect", { args, onOutput }),
 
-  /** Abre um shell local com PTY — mesma interface de uma sessão SSH. */
+  /** Abre um shell local com PTY (nativo ou WSL) — mesma interface de uma sessão SSH. */
   localOpen: (
-    args: { cols: number; rows: number; shell?: string },
+    args: { cols: number; rows: number; shell?: string; wslDistro?: string | null },
     onOutput: Channel<ArrayBuffer>,
   ) => invoke<SessionInfo>("local_open", { ...args, onOutput }),
+  /** Lista distribuições WSL instaladas (retorna vazio fora do Windows). */
+  wslList: () => invoke<WslDistro[]>("wsl_list"),
 
   sshWrite: (sessionId: string, data: number[]) =>
     invoke<void>("ssh_write", { sessionId, data }),
@@ -269,6 +272,7 @@ export const api = {
   // ---------------------------------------------------------------- chaves
 
   keysList: () => invoke<Identity[]>("keys_list"),
+  keysImportFile: (path: string) => invoke<Identity>("keys_import_file", { path }),
   keysGenerate: (args: {
     kind: "ed25519" | "rsa";
     name: string;

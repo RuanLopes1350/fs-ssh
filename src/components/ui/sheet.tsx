@@ -22,29 +22,42 @@ export const SheetContent = React.forwardRef<
     /** Impede o fechamento por clique fora/Esc (usado com confirmação própria). */
     blockOutside?: boolean;
   }
->(({ className, children, side = "right", blockOutside, ...props }, ref) => (
-  <SheetPrimitive.Portal>
-    <SheetPrimitive.Overlay className="fixed inset-0 z-50 bg-[#05070b66] data-[state=open]:animate-[--animate-in-fade] data-[state=closed]:animate-[--animate-out-fade]" />
-    <SheetPrimitive.Content
-      ref={ref}
-      onInteractOutside={(e) => blockOutside && e.preventDefault()}
-      className={cn(
-        "fixed inset-y-0 z-50 flex h-full w-[min(460px,90vw)] flex-col border-line-strong bg-surface shadow-[0_0_60px_#000a] focus:outline-none",
-        side === "right"
-          ? "right-0 border-l data-[state=open]:animate-[--animate-in-right] data-[state=closed]:animate-[--animate-out-right]"
-          : "left-0 border-r data-[state=open]:animate-[--animate-in-fade] data-[state=closed]:animate-[--animate-out-fade]",
-        className,
-      )}
-      {...props}
-    >
-      {children}
-      <SheetPrimitive.Close className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md text-faint transition-colors hover:bg-hover hover:text-foreground focus:outline-none">
-        <X size={14} />
-        <span className="sr-only">Fechar</span>
-      </SheetPrimitive.Close>
-    </SheetPrimitive.Content>
-  </SheetPrimitive.Portal>
-));
+>(({ className, children, side = "right", blockOutside, ...props }, ref) => {
+  // Se o Sheet desmontar com um Select interno ainda aberto, o DismissableLayer
+  // do Radix pode deixar `pointer-events: none` preso no body.
+  React.useEffect(
+    () => () => {
+      if (document.body.style.pointerEvents === "none") {
+        document.body.style.pointerEvents = "";
+      }
+    },
+    [],
+  );
+
+  return (
+    <SheetPrimitive.Portal>
+      <SheetPrimitive.Overlay className="fixed inset-0 z-50 bg-[#05070b66] data-[state=open]:animate-[--animate-in-fade] data-[state=closed]:animate-[--animate-out-fade]" />
+      <SheetPrimitive.Content
+        ref={ref}
+        onInteractOutside={(e) => blockOutside && e.preventDefault()}
+        className={cn(
+          "fixed inset-y-0 z-50 flex h-full w-[min(460px,90vw)] flex-col border-line-strong bg-surface shadow-[0_0_60px_#000a] focus:outline-none",
+          side === "right"
+            ? "right-0 border-l data-[state=open]:animate-[--animate-in-right] data-[state=closed]:animate-[--animate-out-right]"
+            : "left-0 border-r data-[state=open]:animate-[--animate-in-fade] data-[state=closed]:animate-[--animate-out-fade]",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        <SheetPrimitive.Close className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md text-faint transition-colors hover:bg-hover hover:text-foreground focus:outline-none">
+          <X size={14} />
+          <span className="sr-only">Fechar</span>
+        </SheetPrimitive.Close>
+      </SheetPrimitive.Content>
+    </SheetPrimitive.Portal>
+  );
+});
 SheetContent.displayName = "SheetContent";
 
 export function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {

@@ -416,7 +416,7 @@ impl Db {
             let keep: Vec<String> = found.iter().map(|i| i.id.clone()).collect();
             let mut stmt = tx.prepare(
                 "SELECT id FROM identities
-                 WHERE source != 'generated'
+                 WHERE source NOT IN ('generated', 'imported')
                    AND id NOT IN (
                      SELECT identity_id FROM connections WHERE identity_id IS NOT NULL
                    )",
@@ -481,6 +481,29 @@ impl Db {
 
     pub fn get_identity(&self, id: &str) -> AppResult<Option<Identity>> {
         Ok(self.list_identities()?.into_iter().find(|i| i.id == id))
+    }
+
+    /// Grava ou atualiza uma única identidade (usado ao apontar chave `-i` no disco).
+    pub fn save_identity(&self, id: &Identity) -> AppResult<()> {
+        self.lock()?.execute(
+            "INSERT INTO identities
+               (id, label, source, path, pubkey, fingerprint, key_type, has_passphrase, comment)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+             ON CONFLICT(id) DO UPDATE SET
+               label=?2, source=?3, path=?4, pubkey=?5, fingerprint=?6, key_type=?7, has_passphrase=?8, comment=?9",
+            params![
+                id.id,
+                id.label,
+                id.source,
+                id.path,
+                id.pubkey,
+                id.fingerprint,
+                id.key_type,
+                id.has_passphrase as i64,
+                id.comment,
+            ],
+        )?;
+        Ok(())
     }
 
     // ------------------------------------------------------------ known_hosts

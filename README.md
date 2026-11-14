@@ -1,6 +1,6 @@
 # fs-ssh
 
-Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + React 19 + xterm.js 6 + shadcn/ui** no frontend, **Rust (russh + russh-sftp + SQLite)** no backend — sem Electron, sem conta, sem nuvem: tudo local.
+Cliente SSH/SFTP multiplataforma (**macOS, Linux e Windows**) com identidade visual por conexão. **Tauri 2 + React 19 + xterm.js 6 + shadcn/ui** no frontend, **Rust (russh + russh-sftp + SQLite)** no backend — sem Electron, sem conta, sem nuvem: tudo local.
 
 ---
 
@@ -14,7 +14,7 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 - **~150 ícones**: sistemas operacionais, clouds, containers, IaC, CI/CD, web/proxy, bancos, mensageria, monitoramento, rede/VPN, runtimes, storage e self-hosted — mais genéricos de categoria (servidor, rack, VM, firewall, load balancer, roteador…), todos pintados com a cor da conexão.
 - **Importação do `~/.ssh/config`** (blocos `Host`, herança de `Host *`, `ProxyJump`) com pré-visualização e detecção de duplicatas.
 - Marcação de **produção**: confirmação extra ao conectar, badge PROD, faixa vermelha na sessão e exclusão do broadcast por padrão.
-- **Terminal local**: um shell da própria máquina (PTY real, shell de login) tratado como mais uma conexão. Shell configurável, padrão `$SHELL`.
+- **Terminal local e WSL**: um shell da própria máquina (PTY real) tratado como mais uma conexão. No Windows usa **PowerShell** por padrão (`pwsh.exe` / `powershell.exe`), e as distribuições **WSL** instaladas são detectadas nativamente e exibidas em seção separada. No Linux/macOS usa `$SHELL` (com fallback `/bin/bash` e `/bin/zsh`). Shell configurável nas preferências.
 - **Backup do banco** em um clique (`VACUUM INTO`, seguro com o app aberto).
 
 ### Terminal
@@ -30,7 +30,7 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 ### Autenticação e chaves
 - Pipeline `ssh-agent → chave em disco → senha`, configurável por conexão; fallback para `keyboard-interactive`.
 - **Jump host (bastion)** como o `ProxyJump` do OpenSSH, com prompt de senha separado do destino.
-- Gestão de chaves: varredura de `~/.ssh`, chaves só-agente (Secretive/1Password), geração **Ed25519/RSA-4096** com passphrase, carregar no `ssh-agent` (com Keychain do macOS).
+- Gestão de chaves: varredura de `~/.ssh`, chaves só-agente (Secretive/1Password/OpenSSH Agent), geração **Ed25519/RSA-4096** com passphrase, carregar no `ssh-agent` (`--apple-use-keychain` no macOS; named pipe `openssh-ssh-agent` no Windows).
 - **Instalar chave no servidor** (equivalente ao `ssh-copy-id`) usando a sessão já autenticada.
 
 ### SFTP
@@ -109,6 +109,8 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 
 ## Atalhos
 
+No **macOS**, o modificador principal é `⌘` (e `⌥`/`⇧`). No **Windows** e no **Linux**, use `Ctrl` no lugar de `⌘` (e `Alt`/`Shift`).
+
 | Atalho | Ação |
 |---|---|
 | ⌘K | Busca rápida: conectar ou rodar snippet |
@@ -144,13 +146,27 @@ Cliente SSH/SFTP para macOS com identidade visual por conexão. **Tauri 2 + Reac
 ## Desenvolvimento
 
 ```bash
-make              # app com hot-reload (instala as dependências na primeira vez)
-make build        # bundle .app/.dmg em src-tauri/target/release/bundle/
-make install      # copia o .app para /Applications
-make check        # tsc --noEmit + cargo check
-make test         # testes unitários Rust
-make test-ssh     # + integração (sobe um sshd em Docker na porta 2222)
-make help         # lista todos os alvos
+make                  # app com hot-reload (instala as dependências na primeira vez)
+make deps-linux       # instala GTK3 / WebKitGTK 4.1 e deps nativas no Linux
+make build            # bundle apenas do SO atual (despacha para build-linux/windows/macos)
+make build-linux      # gera pacotes Linux (.deb, .rpm, .AppImage)
+make build-linux-deb  # gera apenas .deb (Debian/Ubuntu)
+make build-windows    # gera instaladores Windows (.msi, .exe NSIS)
+make build-macos      # gera bundle macOS (.app, .dmg)
+make install          # instala/gera o pacote principal do SO atual
+make check            # tsc --noEmit + cargo check
+make test             # testes unitários Rust
+make test-ssh         # + integração (sobe um sshd em Docker na porta 2222)
+make help             # lista todos os alvos
+```
+
+Sem `make`, você pode chamar os scripts separados diretamente pelo `pnpm`:
+
+```bash
+pnpm run build:linux      # --bundles deb,rpm,appimage
+pnpm run build:linux:deb  # --bundles deb
+pnpm run build:windows    # --bundles msi,nsis
+pnpm run build:macos      # --bundles dmg,app
 ```
 
 O Makefile põe `~/.cargo/bin` no PATH sozinho — sem isso o `pnpm tauri dev` falha
@@ -159,6 +175,6 @@ com "cargo: command not found" mesmo com o Rust instalado.
 Os testes de integração só rodam com `FS_SSH_TEST_SSH=1`; sem isso passam sem fazer nada, para não quebrar um `cargo test` em máquina sem Docker.
 
 ## Requisitos
-- macOS 11+ (usa Keychain via `ssh-add --apple-use-keychain`, bundle dmg/app).
+- **macOS 11+**, **Linux** (com WebKitGTK/GTK de desenvolvimento para compilar via Tauri) ou **Windows 10/11** (WebView2 + OpenSSH Agent opcional).
 - Rust 1.82+, Node + pnpm.
-- Nenhum emulador de terminal do sistema é necessário: o app fala SSH direto e, no terminal local, usa o PTY do kernel com o seu shell.
+- Nenhum emulador de terminal externo é necessário: o app fala SSH direto e, no terminal local, usa PTY nativo (PowerShell / WSL no Windows; `$SHELL` no Linux e macOS).

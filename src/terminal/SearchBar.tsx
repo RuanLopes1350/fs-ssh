@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 
+import { isMac } from "../lib/platform";
 import { terminals } from "./session";
 
 /**
@@ -48,7 +49,11 @@ export function TerminalSearchBar({ paneId, onClose }: { paneId: string; onClose
           }
         }}
       />
-      <button className="icon-btn" title="Anterior (⇧Enter)" onClick={prev}>
+      <button
+        className="icon-btn"
+        title={`Anterior (${isMac ? "⇧Enter" : "Shift+Enter"})`}
+        onClick={prev}
+      >
         <ChevronUp size={13} />
       </button>
       <button className="icon-btn" title="Próximo (Enter)" onClick={next}>

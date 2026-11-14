@@ -87,9 +87,66 @@ echo '##DF'
 df -Pk 2>/dev/null
 exit 0"#;
 
+/// Coletor PowerShell para o terminal local nativo do Windows (`__local__`),
+/// emitindo as seções esperadas por `parse_overview`.
+const WINDOWS_OVERVIEW_SCRIPT: &str = r#"$inv = [System.Globalization.CultureInfo]::InvariantCulture
+$os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+Write-Output '##OS'
+Write-Output ("Windows_NT " + $os.Version)
+Write-Output $os.Caption
+Write-Output '##UPTIME'
+if ($os.LastBootUpTime) {
+  Write-Output ([int]((Get-Date) - $os.LastBootUpTime).TotalSeconds)
+} else {
+  Write-Output '0'
+}
+$ncpu = [Environment]::ProcessorCount
+Write-Output '##NCPU'
+Write-Output $ncpu
+$load = (Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Measure-Object -Property LoadPercentage -Average).Average
+if ($null -ne $load) {
+  Write-Output '##PSCPU'
+  Write-Output ([double]$load * $ncpu).ToString('0.##', $inv)
+}
+Write-Output '##MEM'
+Write-Output ("MemTotal: " + [int64]$os.TotalVisibleMemorySize + " kB")
+Write-Output ("MemAvailable: " + [int64]$os.FreePhysicalMemory + " kB")
+$pf = Get-CimInstance Win32_PageFileUsage -ErrorAction SilentlyContinue
+$swapTotKb = [int64](($pf | Measure-Object -Property AllocatedBaseSize -Sum).Sum * 1024)
+$swapUsedKb = [int64](($pf | Measure-Object -Property CurrentUsage -Sum).Sum * 1024)
+$swapFreeKb = [math]::Max(0, $swapTotKb - $swapUsedKb)
+Write-Output ("SwapTotal: " + $swapTotKb + " kB")
+Write-Output ("SwapFree: " + $swapFreeKb + " kB")
+Write-Output '##DF'
+Write-Output 'Filesystem 1024-blocks Used Available Capacity Mounted on'
+Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' -ErrorAction SilentlyContinue | ForEach-Object {
+  if ($_.Size -gt 0) {
+    $tot = [int64]($_.Size / 1024)
+    $avail = [int64]($_.FreeSpace / 1024)
+    $used = [math]::Max(0, $tot - $avail)
+    $pct = [int](($used / [math]::Max(1, $tot)) * 100)
+    $mount = ($_.DeviceID + '\')
+    Write-Output "$($_.DeviceID) $tot $used $avail ${pct}% $mount"
+  }
+}"#;
+
+fn is_win_local(handle: &crate::ssh::SessionHandle) -> bool {
+    cfg!(target_os = "windows") && handle.info.connection_id == crate::local::LOCAL_CONNECTION_ID
+}
+
+fn ps_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
 #[tauri::command]
 pub async fn sys_overview(state: State<'_, AppState>, session_id: String) -> AppResult<SysOverview> {
-    let text = run(state, &session_id, OVERVIEW_SCRIPT).await?;
+    let handle = state.sessions.get(&session_id).await?;
+    let text = if is_win_local(&handle) {
+        let (_code, out) = handle.exec(WINDOWS_OVERVIEW_SCRIPT.to_string()).await?;
+        String::from_utf8_lossy(&out).into_owned()
+    } else {
+        run_handle(&handle, OVERVIEW_SCRIPT).await?
+    };
     Ok(parse_overview(&text))
 }
 
@@ -306,6 +363,11 @@ pub struct SysService {
 
 #[tauri::command]
 pub async fn sys_services(state: State<'_, AppState>, session_id: String) -> AppResult<Vec<SysService>> {
+    let handle = state.sessions.get(&session_id).await?;
+    if is_win_local(&handle) {
+        return Err(AppError::msg("este host não usa systemd"));
+    }
+
     const SCRIPT: &str = r#"command -v systemctl >/dev/null 2>&1 || { echo '##NOSYSTEMD'; exit 0; }
 echo '##UNITS'
 systemctl list-units --type=service --all --no-legend --plain --no-pager 2>/dev/null
@@ -313,7 +375,7 @@ echo '##ENABLED'
 systemctl list-unit-files --type=service --state=enabled --no-legend --plain --no-pager 2>/dev/null
 exit 0"#;
 
-    let text = run(state, &session_id, SCRIPT).await?;
+    let text = run_handle(&handle, SCRIPT).await?;
     if text.contains("##NOSYSTEMD") {
         return Err(AppError::msg("este host não usa systemd"));
     }
@@ -425,15 +487,38 @@ const PROC_LIMIT: usize = 300;
 
 #[tauri::command]
 pub async fn sys_processes(state: State<'_, AppState>, session_id: String) -> AppResult<Vec<SysProcess>> {
-    let script = format!(
-        r#"if [ "$(uname)" = "Linux" ]; then
+    let handle = state.sessions.get(&session_id).await?;
+    let text = if is_win_local(&handle) {
+        let script = format!(
+            r#"$inv = [System.Globalization.CultureInfo]::InvariantCulture
+$os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+$totBytes = [math]::Max(1, ([double]$os.TotalVisibleMemorySize * 1024))
+Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First {PROC_LIMIT} | ForEach-Object {{
+  $cpu = if ($null -ne $_.CPU) {{ [double]$_.CPU }} else {{ 0.0 }}
+  $mem = ([double]$_.WorkingSet64 / $totBytes) * 100.0
+  $el = '00:00:00'
+  try {{
+    if ($_.StartTime) {{
+      $ts = (Get-Date) - $_.StartTime
+      $el = [string]::Format($inv, '{{0:00}}:{{1:00}}:{{2:00}}', [int]$ts.TotalHours, $ts.Minutes, $ts.Seconds)
+    }}
+  }} catch {{}}
+  Write-Output "$($_.Id) local $($cpu.ToString('0.0', $inv)) $($mem.ToString('0.0', $inv)) $el $($_.ProcessName)"
+}}"#
+        );
+        let (_code, out) = handle.exec(script).await?;
+        String::from_utf8_lossy(&out).into_owned()
+    } else {
+        let script = format!(
+            r#"if [ "$(uname)" = "Linux" ]; then
   ps -eo pid=,user:32=,pcpu=,pmem=,etime=,args= --sort=-pcpu 2>/dev/null | head -n {PROC_LIMIT}
 else
   ps -Ao pid=,user=,pcpu=,pmem=,etime=,args= -r 2>/dev/null | head -n {PROC_LIMIT}
 fi
 exit 0"#
-    );
-    let text = run(state, &session_id, &script).await?;
+        );
+        run_handle(&handle, &script).await?
+    };
     let out = parse_processes(&text);
     if out.is_empty() {
         return Err(AppError::msg("não deu para listar os processos deste host"));
@@ -491,7 +576,12 @@ pub async fn sys_kill(
     }
 
     let handle = state.sessions.get(&session_id).await?;
-    let (code, out) = handle.exec(format!("kill -{sig} {pid} 2>&1")).await?;
+    let cmd = if is_win_local(&handle) {
+        format!("Stop-Process -Id {pid} -Force -ErrorAction Stop")
+    } else {
+        format!("kill -{sig} {pid} 2>&1")
+    };
+    let (code, out) = handle.exec(cmd).await?;
     if code != 0 {
         let msg = String::from_utf8_lossy(&out).trim().to_string();
         return Err(AppError::msg(if msg.is_empty() {
@@ -545,7 +635,29 @@ elif command -v lsof >/dev/null 2>&1; then
 fi
 exit 0"#;
 
-    let text = run(state, &session_id, SCRIPT).await?;
+    const WINDOWS_PORTS_SCRIPT: &str = r#"$procs = @{}
+Get-Process -ErrorAction SilentlyContinue | ForEach-Object { $procs[[uint32]$_.Id] = $_.ProcessName }
+Write-Output '##SS'
+Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | ForEach-Object {
+  $addr = if ($_.LocalAddress -match ':') { "[$($_.LocalAddress)]" } else { $_.LocalAddress }
+  $pname = $procs[[uint32]$_.OwningProcess]
+  if (-not $pname) { $pname = 'system' }
+  Write-Output "tcp LISTEN 0 0 ${addr}:$($_.LocalPort) *:* users:((""$pname"",pid=$($_.OwningProcess),fd=0))"
+}
+Get-NetUDPEndpoint -ErrorAction SilentlyContinue | ForEach-Object {
+  $addr = if ($_.LocalAddress -match ':') { "[$($_.LocalAddress)]" } else { $_.LocalAddress }
+  $pname = $procs[[uint32]$_.OwningProcess]
+  if (-not $pname) { $pname = 'system' }
+  Write-Output "udp UNCONN 0 0 ${addr}:$($_.LocalPort) *:* users:((""$pname"",pid=$($_.OwningProcess),fd=0))"
+}"#;
+
+    let handle = state.sessions.get(&session_id).await?;
+    let text = if is_win_local(&handle) {
+        let (_code, out) = handle.exec(WINDOWS_PORTS_SCRIPT.to_string()).await?;
+        String::from_utf8_lossy(&out).into_owned()
+    } else {
+        run_handle(&handle, SCRIPT).await?
+    };
     let s = super::net::sections(&text);
     let get = |k: &str| s.get(k).map(String::as_str).unwrap_or_default();
 
@@ -683,6 +795,13 @@ pub struct SysUpdates {
 
 #[tauri::command]
 pub async fn sys_updates(state: State<'_, AppState>, session_id: String) -> AppResult<SysUpdates> {
+    let handle = state.sessions.get(&session_id).await?;
+    if is_win_local(&handle) {
+        return Err(AppError::msg(
+            "gerenciador de pacotes não reconhecido neste host",
+        ));
+    }
+
     // Só consultas: nada aqui instala, atualiza índice ou pede root.
     const SCRIPT: &str = r#"if command -v apt >/dev/null 2>&1; then
   echo '##MANAGER'; echo apt
@@ -708,7 +827,7 @@ echo '##REBOOT'
 if [ -f /var/run/reboot-required ]; then echo sim; fi
 exit 0"#;
 
-    let text = run(state, &session_id, SCRIPT).await?;
+    let text = run_handle(&handle, SCRIPT).await?;
     let s = super::net::sections(&text);
     let get = |k: &str| s.get(k).map(String::as_str).unwrap_or_default();
 
@@ -756,13 +875,25 @@ pub async fn sys_tail(
     }
     let lines = lines.clamp(1, TAIL_MAX_LINES);
 
-    let mut cmd = format!("tail -n {lines} -- {}", quote(&path));
-    if !filter.is_empty() {
-        cmd.push_str(&format!(" | grep -F -- {}", quote(&filter)));
-    }
-    cmd.push_str(" 2>&1");
-
     let handle = state.sessions.get(&session_id).await?;
+    let cmd = if is_win_local(&handle) {
+        let mut c = format!("Get-Content -LiteralPath {} -Tail {lines}", ps_quote(&path));
+        if !filter.is_empty() {
+            c.push_str(&format!(
+                " | Select-String -SimpleMatch {} | ForEach-Object {{ $_.Line }}",
+                ps_quote(&filter)
+            ));
+        }
+        c
+    } else {
+        let mut c = format!("tail -n {lines} -- {}", quote(&path));
+        if !filter.is_empty() {
+            c.push_str(&format!(" | grep -F -- {}", quote(&filter)));
+        }
+        c.push_str(" 2>&1");
+        c
+    };
+
     let (code, out) = handle.exec(cmd).await?;
     let text = String::from_utf8_lossy(&out).into_owned();
     // grep sem casar sai com 1 e sem texto: é resultado vazio, não erro.
@@ -774,9 +905,8 @@ pub async fn sys_tail(
 
 // -------------------------------------------------------------------- helpers
 
-/// Roda um script na sessão e devolve a saída como texto.
-async fn run(state: State<'_, AppState>, session_id: &str, script: &str) -> AppResult<String> {
-    let handle = state.sessions.get(session_id).await?;
+/// Roda um script na sessão já obtida e devolve a saída como texto.
+async fn run_handle(handle: &crate::ssh::SessionHandle, script: &str) -> AppResult<String> {
     let (_code, out) = handle.exec(format!("{PATH_PREFIX}{script}")).await?;
     Ok(String::from_utf8_lossy(&out).into_owned())
 }

@@ -8,8 +8,8 @@ export interface Folder {
 export interface Identity {
   id: string;
   label: string;
-  /** `host` (achada em ~/.ssh), `generated` (criada aqui) ou `agent` (só no agente). */
-  source: "host" | "generated" | "agent";
+  /** `host` (achada em ~/.ssh), `generated` (criada aqui), `imported` (arquivo `-i` apontado) ou `agent` (só no agente). */
+  source: "host" | "generated" | "imported" | "agent";
   path: string | null;
   pubkey: string;
   fingerprint: string;
@@ -56,6 +56,42 @@ export interface Theme {
  * o resto da UI tratar o shell da máquina como mais uma conexão.
  */
 export const LOCAL_CONNECTION_ID = "__local__";
+
+/**
+ * Prefixo das conexões sintéticas do WSL no Windows (`__wsl__:<distro>`).
+ */
+export const WSL_CONNECTION_PREFIX = "__wsl__:";
+
+/** Distribuição WSL instalada localmente, retornada por `wsl_list`. */
+export interface WslDistro {
+  id: string;
+  name: string;
+  icon: string;
+}
+
+/**
+ * Indica se o id representa qualquer sessão local — seja o shell nativo da
+ * máquina (`__local__`) ou uma distribuição WSL (`__wsl__:<distro>`).
+ */
+export function isLocalConnection(id: string | null | undefined): boolean {
+  return (
+    id === LOCAL_CONNECTION_ID ||
+    (typeof id === "string" && id.startsWith(WSL_CONNECTION_PREFIX))
+  );
+}
+
+/** Indica se o id representa uma distribuição WSL. */
+export function isWslConnection(id: string | null | undefined): boolean {
+  return typeof id === "string" && id.startsWith(WSL_CONNECTION_PREFIX);
+}
+
+/** Extrai o nome da distribuição WSL a partir do `connectionId`, ou `null`. */
+export function wslDistroName(id: string | null | undefined): string | null {
+  if (typeof id === "string" && id.startsWith(WSL_CONNECTION_PREFIX)) {
+    return id.slice(WSL_CONNECTION_PREFIX.length) || null;
+  }
+  return null;
+}
 
 export type AuthMethod = "auto" | "agent" | "key" | "password";
 

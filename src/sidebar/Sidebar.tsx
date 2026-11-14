@@ -21,6 +21,7 @@ import { ConfirmDialog, InputDialog } from "../components/Dialogs";
 import { ConnIcon } from "../components/Icon";
 import { Tooltip } from "../components/ui/tooltip";
 import { api } from "../lib/ipc";
+import { isWindows, modKey } from "../lib/platform";
 import {
   activePaneOf,
   filterConnections,
@@ -31,6 +32,8 @@ import type { Connection, Folder } from "../lib/types";
 
 /** Id-sentinela da seção sem pasta, guardado junto com as pastas colapsadas. */
 const SECTION_ROOT = "__sem_pasta__";
+/** Id-sentinela da seção WSL no Windows, guardado junto com as pastas colapsadas. */
+const SECTION_WSL = "__wsl__";
 
 interface SidebarProps {
   onConnect: (c: Connection) => void;
@@ -45,6 +48,7 @@ interface SidebarProps {
 
 export function Sidebar(props: SidebarProps) {
   const connections = useAppStore((s) => s.connections);
+  const wslDistros = useAppStore((s) => s.wslDistros);
   const folders = useAppStore((s) => s.folders);
   const search = useAppStore((s) => s.search);
   const collapsedFolders = useAppStore((s) => s.collapsedFolders);
@@ -76,6 +80,10 @@ export function Sidebar(props: SidebarProps) {
   const visible = useMemo(
     () => filterConnections(connections, search),
     [connections, search],
+  );
+  const visibleWsl = useMemo(
+    () => filterConnections(wslDistros, search),
+    [wslDistros, search],
   );
   const filtering = search.trim().length > 0;
   const collapsed = (id: string) => collapsedFolders.includes(id) && !filtering;
@@ -316,7 +324,14 @@ export function Sidebar(props: SidebarProps) {
       <aside className="sidebar sidebar--rail">
         <div className="sidebar__drag" data-tauri-drag-region />
         <div className="rail__list">
-          <Tooltip content={<span className="whitespace-nowrap">Terminal local</span>}>
+          <Tooltip
+            content={
+              <span className="whitespace-nowrap">
+                <b>{LOCAL_CONNECTION.name}</b>{" "}
+                <span className="text-faint">{LOCAL_CONNECTION.host}</span>
+              </span>
+            }
+          >
             <button
               className="rail__item"
               data-active={activeConnectionId === LOCAL_CONNECTION.id}
@@ -326,6 +341,25 @@ export function Sidebar(props: SidebarProps) {
               <ConnIcon name={LOCAL_CONNECTION.icon} size={16} color={LOCAL_CONNECTION.color} />
             </button>
           </Tooltip>
+          {wslDistros.map((d) => (
+            <Tooltip
+              key={d.id}
+              content={
+                <span className="whitespace-nowrap">
+                  <b>{d.name}</b> <span className="text-faint">WSL</span>
+                </span>
+              }
+            >
+              <button
+                className="rail__item"
+                data-active={d.id === activeConnectionId}
+                style={{ color: d.color }}
+                onClick={() => props.onConnect(d)}
+              >
+                <ConnIcon name={d.icon} size={16} color={d.color} />
+              </button>
+            </Tooltip>
+          ))}
           {railList.map((c) => (
             <Tooltip
               key={c.id}
@@ -353,7 +387,7 @@ export function Sidebar(props: SidebarProps) {
           ))}
         </div>
         <div className="rail__foot">
-          <Tooltip content="Nova conexão (⌘N)">
+          <Tooltip content={`Nova conexão (${modKey("N")})`}>
             <button className="icon-btn" onClick={props.onNew}>
               <Plus size={15} />
             </button>
@@ -391,7 +425,7 @@ export function Sidebar(props: SidebarProps) {
             id="sidebar-search"
             type="search"
             aria-label="Buscar servidor"
-            placeholder="Buscar servidor… (⌘L)"
+            placeholder={`Buscar servidor… (${modKey("L")})`}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => {
@@ -423,19 +457,52 @@ export function Sidebar(props: SidebarProps) {
           role="listitem"
           data-active={activeConnectionId === LOCAL_CONNECTION.id}
           onClick={() => props.onConnect(LOCAL_CONNECTION)}
-          title="Abrir um shell nesta máquina"
+          title={isWindows ? "Abrir PowerShell nesta máquina" : "Abrir um shell nesta máquina"}
         >
           <ConnIcon name={LOCAL_CONNECTION.icon} color={LOCAL_CONNECTION.color} size={16} />
           <span className="conn__body">
             <span className="conn__name">
               <span className="conn__label">{LOCAL_CONNECTION.name}</span>
             </span>
-            <span className="conn__host">shell desta máquina</span>
+            <span className="conn__host">{LOCAL_CONNECTION.host}</span>
           </span>
           {activeConnectionId === LOCAL_CONNECTION.id && (
             <span className="conn__active-dot" />
           )}
         </button>
+        {visibleWsl.length > 0 && (
+          <>
+            <div className="sidebar__divider" />
+            <SectionHeader
+              icon={<ConnIcon name="linux" size={11} />}
+              label="WSL"
+              count={visibleWsl.length}
+              chevron={chevron(SECTION_WSL)}
+              onToggle={() => toggleFolderCollapsed(SECTION_WSL)}
+            />
+            {!collapsed(SECTION_WSL) &&
+              visibleWsl.map((d) => (
+                <button
+                  key={d.id}
+                  className="conn"
+                  data-conn-row
+                  role="listitem"
+                  data-active={activeConnectionId === d.id}
+                  onClick={() => props.onConnect(d)}
+                  title={`Abrir ${d.name} (WSL)`}
+                >
+                  <ConnIcon name={d.icon} color={d.color} size={16} />
+                  <span className="conn__body">
+                    <span className="conn__name">
+                      <span className="conn__label">{d.name}</span>
+                    </span>
+                    <span className="conn__host">WSL</span>
+                  </span>
+                  {activeConnectionId === d.id && <span className="conn__active-dot" />}
+                </button>
+              ))}
+          </>
+        )}
         <div className="sidebar__divider" />
 
         {folders.map((f) => {

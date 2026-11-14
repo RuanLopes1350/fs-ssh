@@ -251,8 +251,9 @@ pub async fn ssh_broadcast(
     Ok(failed)
 }
 
-/// Abre um shell local com PTY. Do frontend em diante é uma sessão como
-/// qualquer outra — mesmo canal de saída, mesmos write/resize/gravação.
+/// Abre um shell local (ou uma distro WSL no Windows) com PTY. Do frontend em
+/// diante é uma sessão como qualquer outra — mesmo canal de saída, mesmos
+/// write/resize/gravação.
 #[tauri::command]
 pub async fn local_open(
     app: AppHandle,
@@ -260,23 +261,47 @@ pub async fn local_open(
     cols: u16,
     rows: u16,
     shell: Option<String>,
+    wsl_distro: Option<String>,
     on_output: IpcChannel<InvokeResponseBody>,
 ) -> AppResult<SessionInfo> {
+    let clean_distro = wsl_distro
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
     let session_id = SessionManager::new_id();
     let (tx, shell_path) = crate::local::spawn(
         app,
         session_id.clone(),
         shell.as_deref(),
+        clean_distro,
         cols,
         rows,
         on_output,
     )?;
 
+    let (connection_id, host, log_label) = match clean_distro {
+        Some(d) => (
+            format!("{}{d}", crate::local::WSL_CONNECTION_PREFIX),
+            format!("wsl:{d}"),
+            format!("WSL ({d})"),
+        ),
+        None => (
+            crate::local::LOCAL_CONNECTION_ID.to_string(),
+            "localhost".into(),
+            "Terminal local".to_string(),
+        ),
+    };
+
+    let username = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "local".into());
+
     let info = SessionInfo {
         session_id: session_id.clone(),
-        connection_id: crate::local::LOCAL_CONNECTION_ID.to_string(),
-        host: "localhost".into(),
-        username: std::env::var("USER").unwrap_or_else(|_| "local".into()),
+        connection_id,
+        host,
+        username,
         fingerprint: String::new(),
         banner: None,
         read_only: false,
@@ -290,7 +315,7 @@ pub async fn local_open(
         "info",
         "local",
         None,
-        "Terminal local",
+        &log_label,
         &format!("shell local aberto ({shell_path})"),
     );
 
@@ -309,10 +334,18 @@ pub async fn local_open(
             }
         }
         sessions.remove(&sid).await;
-        db.log_event("info", "local", None, "Terminal local", "shell encerrado");
+        db.log_event("info", "local", None, &log_label, "shell encerrado");
     });
 
     Ok(info)
+}
+
+/// Lista as distribuições WSL instaladas no Windows (retorna vazio fora do Windows).
+#[tauri::command]
+pub async fn wsl_list() -> AppResult<Vec<crate::local::WslDistro>> {
+    tokio::task::spawn_blocking(crate::local::list_wsl_distros)
+        .await
+        .map_err(|e| AppError::msg(e.to_string()))
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -357,12 +390,18 @@ pub async fn docker_ps(
     session_id: String,
 ) -> AppResult<Vec<DockerContainer>> {
     const FMT: &str = "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}";
-    let cmd = format!(
-        "command -v docker >/dev/null 2>&1 && docker ps -a --format '{FMT}' || \
-         (command -v podman >/dev/null 2>&1 && podman ps -a --format '{FMT}')"
-    );
-
     let handle = state.sessions.get(&session_id).await?;
+    let is_win_local =
+        cfg!(target_os = "windows") && handle.info.connection_id == crate::local::LOCAL_CONNECTION_ID;
+    let cmd = if is_win_local {
+        format!("if (Get-Command docker -ErrorAction SilentlyContinue) {{ docker ps -a --format '{FMT}' }} elseif (Get-Command podman -ErrorAction SilentlyContinue) {{ podman ps -a --format '{FMT}' }} else {{ exit 1 }}")
+    } else {
+        format!(
+            "command -v docker >/dev/null 2>&1 && docker ps -a --format '{FMT}' || \
+             (command -v podman >/dev/null 2>&1 && podman ps -a --format '{FMT}')"
+        )
+    };
+
     let (exit_code, out) = handle.exec(cmd).await?;
     let text = String::from_utf8_lossy(&out);
 
@@ -429,12 +468,18 @@ pub async fn docker_action(
     } else {
         format!("{action} {container}")
     };
-    let cmd = format!(
-        "command -v docker >/dev/null 2>&1 && docker {args} || \
-         (command -v podman >/dev/null 2>&1 && podman {args})"
-    );
-
     let handle = state.sessions.get(&session_id).await?;
+    let is_win_local =
+        cfg!(target_os = "windows") && handle.info.connection_id == crate::local::LOCAL_CONNECTION_ID;
+    let cmd = if is_win_local {
+        format!("if (Get-Command docker -ErrorAction SilentlyContinue) {{ docker {args} }} elseif (Get-Command podman -ErrorAction SilentlyContinue) {{ podman {args} }} else {{ exit 1 }}")
+    } else {
+        format!(
+            "command -v docker >/dev/null 2>&1 && docker {args} || \
+             (command -v podman >/dev/null 2>&1 && podman {args})"
+        )
+    };
+
     let (exit_code, out) = handle.exec(cmd).await?;
     if exit_code != 0 {
         let msg = String::from_utf8_lossy(&out).trim().to_string();

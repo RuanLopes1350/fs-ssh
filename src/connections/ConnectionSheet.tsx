@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, Trash2 } from "lucide-react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { FolderOpen, Search, Trash2 } from "lucide-react";
 
 import { ConfirmDialog } from "../components/Dialogs";
 import { ConnIcon, ICON_GROUPS, iconLabel } from "../components/Icon";
@@ -22,7 +23,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "../components/ui/sheet";
-import { api } from "../lib/ipc";
+import { api, asAppError } from "../lib/ipc";
 import { terminals } from "../terminal/session";
 import { FALLBACK_PALETTE, useAppStore } from "../store/useAppStore";
 import type { AuthMethod, Connection } from "../lib/types";
@@ -75,6 +76,7 @@ export function ConnectionSheet({
   const [conn, setConn] = useState<Connection>(initial);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pickingKey, setPickingKey] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const saved = useRef(false);
 
@@ -83,6 +85,7 @@ export function ConnectionSheet({
   const folders = useAppStore((s) => s.folders);
   const connections = useAppStore((s) => s.connections);
   const reload = useAppStore((s) => s.reloadConnections);
+  const selectedIdentity = identities.find((i) => i.id === conn.identityId) ?? null;
 
   const set = <K extends keyof Connection>(k: K, v: Connection[K]) =>
     setConn((c) => ({ ...c, [k]: v }));
@@ -142,9 +145,33 @@ export function ConnectionSheet({
     onClose();
   };
 
+  const pickKeyFile = async () => {
+    setPickingKey(true);
+    setError(null);
+    try {
+      const picked = await openDialog({
+        multiple: false,
+        directory: false,
+        title: "Selecionar chave privada SSH (-i)",
+      });
+      if (!picked || typeof picked !== "string") return;
+      const id = await api.keysImportFile(picked);
+      await useAppStore.getState().reloadIdentities();
+      setConn((c) => ({
+        ...c,
+        identityId: id.id,
+        authMethod: c.authMethod === "auto" ? "key" : c.authMethod,
+      }));
+    } catch (e) {
+      setError(asAppError(e).message);
+    } finally {
+      setPickingKey(false);
+    }
+  };
+
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()}>
-      <SheetContent blockOutside={saving}>
+      <SheetContent blockOutside={saving || confirmDelete || pickingKey}>
         <SheetHeader>
           <SheetTitle>
             <ConnIcon name={conn.icon} color={conn.color} size={15} />
@@ -209,47 +236,69 @@ export function ConnectionSheet({
             </Field>
           </div>
 
-          <div className="flex gap-2.5">
-            <Field label="Chave" className="flex-1">
-              <Select
-                value={conn.identityId ?? NONE}
-                onValueChange={(v) => set("identityId", v === NONE ? null : v)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>Qualquer uma disponível</SelectItem>
-                  {identities.map((i) => (
-                    <SelectItem key={i.id} value={i.id}>
-                      {i.label} · {i.keyType}
-                      {i.inAgent ? " · no agente" : ""}
+          {conn.authMethod !== "password" && (
+            <Field
+              label="Chave privada (-i)"
+              hint={
+                selectedIdentity?.path
+                  ? `-i ${selectedIdentity.path} (permissão 600)`
+                  : "Escolha uma chave detectada ou aponte o arquivo (.key, .pem, id_ed25519…); chmod 600 é aplicado automaticamente."
+              }
+            >
+              <div className="flex gap-2">
+                <div className="min-w-0 flex-1">
+                  <Select
+                    value={conn.identityId ?? NONE}
+                    onValueChange={(v) => set("identityId", v === NONE ? null : v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NONE}>Qualquer uma disponível</SelectItem>
+                      {identities.map((i) => (
+                        <SelectItem key={i.id} value={i.id}>
+                          {i.label} · {i.keyType}
+                          {i.inAgent ? " · no agente" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={pickingKey}
+                  onClick={() => void pickKeyFile()}
+                  title="Apontar arquivo de chave privada (-i) e aplicar chmod 600"
+                >
+                  <FolderOpen size={13} />
+                  Arquivo (-i)…
+                </Button>
+              </div>
+            </Field>
+          )}
+
+          <Field label="Jump host (bastion)">
+            <Select
+              value={conn.jumpHostId ?? NONE}
+              onValueChange={(v) => set("jumpHostId", v === NONE ? null : v)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Conexão direta</SelectItem>
+                {connections
+                  .filter((c) => c.id !== conn.id)
+                  .map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name} ({c.host})
                     </SelectItem>
                   ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Jump host (bastion)" className="flex-1">
-              <Select
-                value={conn.jumpHostId ?? NONE}
-                onValueChange={(v) => set("jumpHostId", v === NONE ? null : v)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>Conexão direta</SelectItem>
-                  {connections
-                    .filter((c) => c.id !== conn.id)
-                    .map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name} ({c.host})
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          </div>
+              </SelectContent>
+            </Select>
+          </Field>
 
           <div className="flex gap-2.5">
             <Field label="Pasta" className="flex-1">

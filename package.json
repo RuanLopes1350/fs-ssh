@@ -10,6 +10,10 @@
     "tauri": "tauri",
     "app": "tauri dev",
     "app:build": "tauri build",
+    "build:linux": "tauri build --bundles deb,rpm,appimage",
+    "build:linux:deb": "tauri build --bundles deb",
+    "build:windows": "tauri build --bundles msi,nsis",
+    "build:macos": "tauri build --bundles dmg,app",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

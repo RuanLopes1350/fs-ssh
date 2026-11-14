@@ -556,7 +556,7 @@ pub async fn sftp_edit_local(
     let s = state.sessions.get(&session_id).await?.sftp().await?;
     let bytes = sftp::read_all(&s, &path, MAX_INLINE_EDIT).await?;
 
-    let name = path.rsplit('/').next().unwrap_or("arquivo");
+    let name = path.rsplit(['/', '\\']).next().unwrap_or("arquivo");
     let dir = std::env::temp_dir().join(format!("fs-ssh-edit-{}", uuid::Uuid::new_v4()));
     create_private_dir(&dir)?;
     let local = dir.join(name);

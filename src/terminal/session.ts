@@ -8,7 +8,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { api, Channel } from "../lib/ipc";
-import { LOCAL_CONNECTION_ID } from "../lib/types";
+import { isLocalConnection, wslDistroName } from "../lib/types";
 import type { AppError, SessionInfo, TerminalPalette } from "../lib/types";
 
 const encoder = new TextEncoder();
@@ -64,7 +64,7 @@ export class TerminalSession {
   ) {
     this.term = new Terminal({
       fontFamily:
-        '"JetBrains Mono", "SF Mono", Menlo, Monaco, "Courier New", monospace',
+        '"JetBrains Mono", "Cascadia Mono", "SF Mono", Menlo, Monaco, Consolas, "DejaVu Sans Mono", "Ubuntu Mono", "Liberation Mono", "Courier New", monospace',
       fontSize,
       lineHeight: 1.2,
       cursorBlink: true,
@@ -105,13 +105,20 @@ export class TerminalSession {
     const { cols, rows } = this.currentSize();
     // O terminal local é uma "conexão" sintética: mesmo canal de saída, mas o
     // backend abre um PTY em vez de uma sessão SSH.
-    const info =
-      this.connectionId === LOCAL_CONNECTION_ID
-        ? await api.localOpen({ cols, rows, shell: this.localShell }, onOutput)
-        : await api.sshConnect(
-            { connectionId: this.connectionId, cols, rows, secret, jumpSecret },
-            onOutput,
-          );
+    const info = isLocalConnection(this.connectionId)
+      ? await api.localOpen(
+          {
+            cols,
+            rows,
+            shell: this.localShell,
+            wslDistro: wslDistroName(this.connectionId),
+          },
+          onOutput,
+        )
+      : await api.sshConnect(
+          { connectionId: this.connectionId, cols, rows, secret, jumpSecret },
+          onOutput,
+        );
     this.info = info;
     this.closed = false;
 

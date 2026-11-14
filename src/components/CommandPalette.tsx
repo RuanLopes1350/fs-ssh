@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CornerDownLeft, Server, TerminalSquare } from "lucide-react";
 
 import { ConnIcon } from "./Icon";
+import { modKey } from "../lib/platform";
 import { LOCAL_CONNECTION, useAppStore } from "../store/useAppStore";
 import type { Connection, Snippet } from "../lib/types";
 
@@ -32,6 +33,7 @@ export function CommandPalette({
   onClose: () => void;
 }) {
   const connections = useAppStore((s) => s.connections);
+  const wslDistros = useAppStore((s) => s.wslDistros);
   const snippets = useAppStore((s) => s.snippets);
   const [q, setQ] = useState("");
   const [index, setIndex] = useState(0);
@@ -46,8 +48,8 @@ export function CommandPalette({
     const conns: PaletteAction[] =
       only === "snippets"
         ? []
-        : // O terminal local entra na lista como qualquer servidor.
-          [LOCAL_CONNECTION, ...connections]
+        : // O terminal local e as distros WSL entram na lista como qualquer servidor.
+          [LOCAL_CONNECTION, ...wslDistros, ...connections]
             .filter((c) => !query || match(c.name) || match(c.host) || match(c.username))
             .slice(0, 20)
             .map((connection) => ({ type: "connect", connection }));
@@ -60,7 +62,7 @@ export function CommandPalette({
       : [];
 
     return [...conns, ...snips];
-  }, [q, connections, snippets, hasSession, only]);
+  }, [q, connections, wslDistros, snippets, hasSession, only]);
 
   useEffect(() => setIndex(0), [q]);
 
@@ -113,7 +115,9 @@ export function CommandPalette({
                     {item.connection.name}
                     <span className="muted">
                       {" "}
-                      {item.connection.username}@{item.connection.host}
+                      {item.connection.username
+                        ? `${item.connection.username}@${item.connection.host}`
+                        : item.connection.host}
                     </span>
                   </span>
                   {item.connection.isProduction && <span className="prod-badge">PROD</span>}
@@ -145,7 +149,7 @@ export function CommandPalette({
           <div className="palette__hint">
             <span className="kbd">↵</span> nova aba
             <span className="kbd" style={{ marginLeft: 10 }}>
-              ⌘↵
+              {modKey("↵")}
             </span>{" "}
             split no painel ativo
           </div>

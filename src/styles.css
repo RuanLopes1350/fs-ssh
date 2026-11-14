@@ -80,10 +80,14 @@ textarea:focus {
   min-height: 0;
 }
 
-/* Faixa arrastável sob os semáforos do macOS. */
+/* Faixa arrastável: no macOS abre espaço para os semáforos; em Linux/Windows fica compacta. */
 .sidebar__drag {
-  height: 38px;
+  height: 10px;
   flex: none;
+}
+
+.app[data-platform="mac"] .sidebar__drag {
+  height: 38px;
 }
 
 .sidebar__search {
@@ -423,6 +427,8 @@ textarea:focus {
 .term-overlay {
   position: absolute;
   inset: 0;
+  z-index: 25;
+  pointer-events: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -434,6 +440,11 @@ textarea:focus {
   backdrop-filter: blur(1.5px);
 }
 
+/* Impede que o canvas/camadas do xterm capturem cliques por trás do aviso. */
+.pane-slot:has(.term-overlay) .terminal-host {
+  pointer-events: none;
+}
+
 .term-overlay--quiet {
   background: #05070b99;
   color: var(--text-dim);
@@ -441,6 +452,9 @@ textarea:focus {
 }
 
 .term-overlay__card {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
   max-width: 460px;
   padding: 18px 20px;
   background: var(--bg-raised);
@@ -513,11 +527,15 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 50;
+  z-index: 100;
+  pointer-events: auto;
   padding: 24px;
 }
 
 .modal {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
   background: var(--bg-raised);
   border: 1px solid var(--border-strong);
   border-radius: 12px;
@@ -624,7 +642,8 @@ textarea:focus {
 
 .ctxmenu {
   position: fixed;
-  z-index: 70;
+  z-index: 110;
+  pointer-events: auto;
   min-width: 176px;
   padding: 4px;
   background: var(--bg-raised);
@@ -1430,11 +1449,11 @@ textarea:focus {
 /* Os semáforos do macOS ocupam ~78px no canto superior esquerdo. Quando a
    barra lateral não cobre esse espaço, a barra de abas recua para o botão de
    recolher não encostar neles. */
-.app[data-sidebar="false"] .tabbar {
+.app[data-platform="mac"][data-sidebar="false"] .tabbar {
   padding-left: 78px;
 }
 
-.app[data-rail="true"][data-sidebar="true"] .tabbar {
+.app[data-platform="mac"][data-rail="true"][data-sidebar="true"] .tabbar {
   padding-left: 38px;
 }
 

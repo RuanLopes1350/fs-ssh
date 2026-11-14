@@ -4,6 +4,7 @@ import {
   Download,
   Eye,
   FileText,
+  FolderOpen,
   KeyRound,
   Palette,
   Pencil,
@@ -22,6 +23,7 @@ import { open as openFileDialog, save } from "@tauri-apps/plugin-dialog";
 import { ConfirmDialog, InputDialog, Spinner } from "../components/Dialogs";
 import { Modal } from "../components/Dialogs";
 import { api, asAppError } from "../lib/ipc";
+import { isWindows, modKey } from "../lib/platform";
 import { LogsView } from "../logs/LogsView";
 import { PreferencesTab } from "../components/PreferencesTab";
 import { CastPlayer } from "../recordings/CastPlayer";
@@ -207,11 +209,35 @@ function KeysTab({
     }
   };
 
+  const importKeyFile = async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const picked = await openFileDialog({
+        multiple: false,
+        directory: false,
+        title: "Apontar arquivo de chave privada (-i)",
+      });
+      if (!picked || typeof picked !== "string") return;
+      const id = await api.keysImportFile(picked);
+      await reload();
+      setNotice(
+        `Chave ${id.label} apontada (${id.path ?? picked}) com permissão 600 aplicada.`,
+      );
+    } catch (e) {
+      setError(asAppError(e).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <div className="muted" style={{ fontSize: 11 }}>
-        As chaves ficam em <code>~/.ssh</code> no formato OpenSSH — as mesmas que o{" "}
-        <code>ssh</code> da linha de comando usa. Este app nunca copia material de chave
+        As chaves ficam em <code>~/.ssh</code> no formato OpenSSH — ou podem ser
+        apontadas de qualquer caminho do disco (como <code>ssh -i</code>), recebendo{" "}
+        <code>chmod 600</code> automaticamente. Este app nunca copia material de chave
         privada para o próprio banco.
       </div>
 
@@ -233,11 +259,19 @@ function KeysTab({
           <div style={{ flex: 1, minWidth: 0 }}>
             <div>{i.label}</div>
             <div className="muted" style={{ fontSize: 10, wordBreak: "break-all" }}>
-              {i.keyType} · {i.fingerprint}
+              {i.keyType}
+              {i.fingerprint ? ` · ${i.fingerprint}` : ""}
+              {i.path ? ` · ${i.path}` : ""}
             </div>
           </div>
           <div className="muted" style={{ fontSize: 10, textAlign: "right" }}>
-            {i.source === "agent" ? "só no agente" : i.source === "generated" ? "criada aqui" : "~/.ssh"}
+            {i.source === "agent"
+              ? "só no agente"
+              : i.source === "generated"
+                ? "criada aqui"
+                : i.source === "imported"
+                  ? "apontada (-i)"
+                  : "~/.ssh"}
             <br />
             {i.hasPassphrase ? "cifrada" : "sem passphrase"}
             {i.inAgent && " · carregada"}
@@ -275,9 +309,14 @@ function KeysTab({
       )}
 
       {!creating ? (
-        <button className="btn" onClick={() => setCreating(true)}>
-          <Plus size={13} style={{ verticalAlign: -2 }} /> Gerar nova chave
-        </button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn" disabled={busy} onClick={() => void importKeyFile()}>
+            <FolderOpen size={13} style={{ verticalAlign: -2 }} /> Apontar arquivo (-i)…
+          </button>
+          <button className="btn" disabled={busy} onClick={() => setCreating(true)}>
+            <Plus size={13} style={{ verticalAlign: -2 }} /> Gerar nova chave
+          </button>
+        </div>
       ) : (
         <div
           style={{
@@ -308,7 +347,7 @@ function KeysTab({
               <input
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="marco@macbook"
+                placeholder={isWindows ? "usuario@pc" : "usuario@host"}
               />
             </div>
             <div className="field">
@@ -388,8 +427,8 @@ function SnippetsTab() {
   return (
     <>
       <div className="muted" style={{ fontSize: 11 }}>
-        Snippets aparecem na paleta (⌘K) quando há uma sessão aberta e são digitados no
-        terminal ativo. Com o broadcast ligado, valem para todas as abas.
+        Snippets aparecem na paleta ({modKey("K")}) quando há uma sessão aberta e são
+        digitados no terminal ativo. Com o broadcast ligado, valem para todas as abas.
       </div>
 
       {error && <div className="alert alert--danger">{error}</div>}
@@ -563,7 +602,7 @@ function ThemesTab() {
       if (typeof path !== "string") return;
       const xml = await api.localReadText(path);
       const palette = parseItermcolors(xml);
-      const name = path.split("/").pop()?.replace(/\.itermcolors$/, "") ?? "importado";
+      const name = path.split(/[/\\]/).pop()?.replace(/\.itermcolors$/, "") ?? "importado";
       await api.themeSave({ id: "", name, isBuiltin: false, json: palette });
       await loadAll();
       setNotice(`Tema "${name}" importado.`);

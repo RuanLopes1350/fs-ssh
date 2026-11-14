@@ -172,5 +172,7 @@ pub struct ImportResult {
 }
 
 fn whoami_fallback() -> String {
-    std::env::var("USER").unwrap_or_else(|_| "root".into())
+    std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "root".into())
 }

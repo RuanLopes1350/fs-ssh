@@ -97,6 +97,7 @@ pub fn run() {
             cmd::ssh::ssh_ping,
             cmd::ssh::ssh_set_read_only,
             cmd::ssh::local_open,
+            cmd::ssh::wsl_list,
             cmd::ssh::ssh_exec,
             cmd::ssh::docker_ps,
             cmd::ssh::docker_action,
@@ -162,6 +163,7 @@ pub fn run() {
             cmd::sftp::local_read_text,
             // chaves
             cmd::keys::keys_list,
+            cmd::keys::keys_import_file,
             cmd::keys::keys_generate,
             cmd::keys::keys_add_to_agent,
             cmd::keys::keys_install_on_host,

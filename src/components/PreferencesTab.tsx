@@ -4,6 +4,7 @@ import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 
 import { Spinner } from "./Dialogs";
 import { api, asAppError } from "../lib/ipc";
+import { defaultShellPlaceholder, isWindows, modKey, modShiftKey } from "../lib/platform";
 import { useAppStore } from "../store/useAppStore";
 
 /**
@@ -69,7 +70,9 @@ export function PreferencesTab() {
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div className="row">
         <div className="field" style={{ maxWidth: 180 }}>
-          <label>Tamanho da fonte do terminal (⌘+ / ⌘−)</label>
+          <label>
+            Tamanho da fonte do terminal ({modKey("+")} / {modKey("−")})
+          </label>
           <input
             type="number"
             min={9}
@@ -82,7 +85,11 @@ export function PreferencesTab() {
           <label>Shell do terminal local</label>
           <input
             value={settings.localShell}
-            placeholder="vazio = $SHELL do sistema"
+            placeholder={
+              isWindows
+                ? `vazio = PowerShell (${defaultShellPlaceholder()})`
+                : `vazio = $SHELL (${defaultShellPlaceholder()})`
+            }
             onChange={(e) => setSettings({ localShell: e.target.value })}
           />
         </div>
@@ -111,7 +118,7 @@ export function PreferencesTab() {
       {check(
         "recordHistory",
         "Guardar o histórico de comandos",
-        "Registra as linhas digitadas no prompt para reexecutar pelo painel de histórico (⌘⇧H). Fica salvo neste computador; senhas não entram (só é guardado o que o servidor ecoou na tela). Use o ícone de lixeira do painel para apagar.",
+        `Registra as linhas digitadas no prompt para reexecutar pelo painel de histórico (${modShiftKey("H")}). Fica salvo neste computador; senhas não entram (só é guardado o que o servidor ecoou na tela). Use o ícone de lixeira do painel para apagar.`,
       )}
       {check(
         "autoRecord",

@@ -394,7 +394,11 @@ export function SftpPanel({
             <button
               className="icon-btn"
               title="Subir um nível"
-              onClick={() => void loadLocal(parent(localPath))}
+              onClick={() =>
+                void api.localParent(localPath).then((p) => {
+                  if (p) void loadLocal(p);
+                })
+              }
             >
               <ChevronUp size={14} />
             </button>
@@ -955,7 +959,13 @@ function BookmarkButton({
   const toggle = async () => {
     try {
       if (current) await api.bookmarkDelete(current.id);
-      else await api.bookmarkSave({ connectionId, side, path, label: path.split("/").pop() || path });
+      else
+        await api.bookmarkSave({
+          connectionId,
+          side,
+          path,
+          label: path.split(/[/\\]/).pop() || path,
+        });
       onChanged();
     } catch {
       // Sem favorito o painel segue igual; não vale um alerta.
@@ -1286,7 +1296,9 @@ function TransferHistory() {
       {items.map((t) => (
         <div key={t.id} className="transfers__row" title={`${t.local}\n${t.remote}`}>
           {t.direction === "up" ? <ArrowUpFromLine size={11} /> : <ArrowDownToLine size={11} />}
-          <span className="file__name">{(t.direction === "up" ? t.remote : t.local).split("/").pop()}</span>
+          <span className="file__name">
+            {(t.direction === "up" ? t.remote : t.local).split(/[/\\]/).pop()}
+          </span>
           <span className="muted">{t.connection}</span>
           <span
             className="muted"
@@ -1435,9 +1447,12 @@ function shortDate(mtimeSec: number) {
   return d.toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
 }
 
-/** Une caminho e nome. Serve para local e remoto: ambos usam `/` no macOS. */
+/** Une caminho e nome, respeitando `/` no servidor/Unix e `\` no Windows. */
 function join(base: string, name: string) {
-  return base.endsWith("/") ? `${base}${name}` : `${base}/${name}`;
+  const win = base.includes("\\") && !base.includes("/");
+  const sep = win ? "\\" : "/";
+  const part = win ? name.replaceAll("/", "\\") : name;
+  return base.endsWith("/") || base.endsWith("\\") ? `${base}${part}` : `${base}${sep}${part}`;
 }
 
 function parent(path: string) {
