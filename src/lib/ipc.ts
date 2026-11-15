@@ -6,6 +6,7 @@ import type {
   Connection,
   DiffEntry,
   DockerContainer,
+  DockerImage,
   ExecResult,
   Folder,
   PortForward,
@@ -162,11 +163,14 @@ export const api = {
   sshExec: (sessionId: string, command: string) =>
     invoke<ExecResult>("ssh_exec", { sessionId, command }),
   dockerPs: (sessionId: string) => invoke<DockerContainer[]>("docker_ps", { sessionId }),
+  dockerImages: (sessionId: string) => invoke<DockerImage[]>("docker_images", { sessionId }),
   dockerAction: (
     sessionId: string,
     action: "start" | "stop" | "restart" | "rm",
     container: string,
   ) => invoke<void>("docker_action", { sessionId, action, container }),
+  dockerImageRm: (sessionId: string, image: string, force = false) =>
+    invoke<void>("docker_image_rm", { sessionId, image, force }),
   netInfo: (sessionId: string) => invoke<NetInfo>("net_info", { sessionId }),
 
   // ------------------------------------------------ observabilidade do host

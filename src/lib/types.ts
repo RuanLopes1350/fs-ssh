@@ -297,6 +297,14 @@ export interface DockerContainer {
   running: boolean;
 }
 
+export interface DockerImage {
+  id: string;
+  repository: string;
+  tag: string;
+  size: string;
+  created: string;
+}
+
 /** Um endereço de uma interface, com prefixo e (em IPv4) máscara decimal. */
 export interface NetAddr {
   addr: string;

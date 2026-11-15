@@ -100,7 +100,9 @@ pub fn run() {
             cmd::ssh::wsl_list,
             cmd::ssh::ssh_exec,
             cmd::ssh::docker_ps,
+            cmd::ssh::docker_images,
             cmd::ssh::docker_action,
+            cmd::ssh::docker_image_rm,
             // rede e observabilidade do host
             cmd::net::net_info,
             cmd::sys::sys_overview,

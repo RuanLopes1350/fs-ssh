@@ -1155,13 +1155,13 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
-              aria-label="Painel de containers"
+              aria-label="Painel Docker"
               data-active={openPanel === "docker"}
               disabled={!activePane?.sessionId}
               title={
                 isLocalPane
-                  ? "Containers Docker/Podman desta máquina"
-                  : "Containers Docker/Podman deste host"
+                  ? "Docker/Podman desta máquina (containers e imagens)"
+                  : "Docker/Podman deste host (containers e imagens)"
               }
               onClick={() => useAppStore.getState().togglePanel("docker")}
             >

@@ -370,7 +370,7 @@ pub async fn ssh_exec(
     })
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DockerContainer {
     pub id: String,
@@ -379,6 +379,36 @@ pub struct DockerContainer {
     pub status: String,
     pub ports: String,
     pub running: bool,
+}
+
+#[derive(Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerImage {
+    pub id: String,
+    pub repository: String,
+    pub tag: String,
+    pub size: String,
+    pub created: String,
+}
+
+/// Monta a chamada `docker` (com fallback para `podman`) conforme o shell do host.
+fn docker_or_podman_cmd(is_win_local: bool, args: &str) -> String {
+    if is_win_local {
+        format!(
+            "if (Get-Command docker -ErrorAction SilentlyContinue) {{ docker {args} }} \
+             elseif (Get-Command podman -ErrorAction SilentlyContinue) {{ podman {args} }} \
+             else {{ exit 1 }}"
+        )
+    } else {
+        format!(
+            "command -v docker >/dev/null 2>&1 && docker {args} || \
+             (command -v podman >/dev/null 2>&1 && podman {args})"
+        )
+    }
+}
+
+fn is_win_local_session(connection_id: &str) -> bool {
+    cfg!(target_os = "windows") && connection_id == crate::local::LOCAL_CONNECTION_ID
 }
 
 /// Lista os containers do host remoto via `docker ps` (com fallback para
@@ -391,16 +421,10 @@ pub async fn docker_ps(
 ) -> AppResult<Vec<DockerContainer>> {
     const FMT: &str = "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}";
     let handle = state.sessions.get(&session_id).await?;
-    let is_win_local =
-        cfg!(target_os = "windows") && handle.info.connection_id == crate::local::LOCAL_CONNECTION_ID;
-    let cmd = if is_win_local {
-        format!("if (Get-Command docker -ErrorAction SilentlyContinue) {{ docker ps -a --format '{FMT}' }} elseif (Get-Command podman -ErrorAction SilentlyContinue) {{ podman ps -a --format '{FMT}' }} else {{ exit 1 }}")
-    } else {
-        format!(
-            "command -v docker >/dev/null 2>&1 && docker ps -a --format '{FMT}' || \
-             (command -v podman >/dev/null 2>&1 && podman ps -a --format '{FMT}')"
-        )
-    };
+    let cmd = docker_or_podman_cmd(
+        is_win_local_session(&handle.info.connection_id),
+        &format!("ps -a --format '{FMT}'"),
+    );
 
     let (exit_code, out) = handle.exec(cmd).await?;
     let text = String::from_utf8_lossy(&out);
@@ -414,8 +438,13 @@ pub async fn docker_ps(
         }));
     }
 
+    Ok(parse_docker_ps(&text))
+}
+
+fn parse_docker_ps(text: &str) -> Vec<DockerContainer> {
     let mut containers = Vec::new();
     for line in text.lines() {
+        let line = line.trim_end_matches('\r');
         let mut parts = line.splitn(5, '\t');
         let (Some(id), Some(name)) = (parts.next(), parts.next()) else {
             continue;
@@ -432,7 +461,110 @@ pub async fn docker_ps(
             running: status.starts_with("Up"),
         });
     }
-    Ok(containers)
+    containers
+}
+
+/// Lista as imagens presentes no host via `docker images` (com fallback para `podman`).
+#[tauri::command]
+pub async fn docker_images(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> AppResult<Vec<DockerImage>> {
+    const FMT: &str = "{{.ID}}\t{{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}";
+    let handle = state.sessions.get(&session_id).await?;
+    let cmd = docker_or_podman_cmd(
+        is_win_local_session(&handle.info.connection_id),
+        &format!("images --format '{FMT}'"),
+    );
+
+    let (exit_code, out) = handle.exec(cmd).await?;
+    let text = String::from_utf8_lossy(&out);
+
+    if exit_code != 0 {
+        let msg = text.trim();
+        return Err(AppError::msg(if msg.is_empty() {
+            "docker/podman não encontrado neste host".to_string()
+        } else {
+            msg.to_string()
+        }));
+    }
+
+    Ok(parse_docker_images(&text))
+}
+
+fn parse_docker_images(text: &str) -> Vec<DockerImage> {
+    let mut images = Vec::new();
+    for line in text.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.trim().is_empty() {
+            continue;
+        }
+        let mut parts = line.splitn(5, '\t');
+        let (Some(id), Some(repository)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        let tag = parts.next().unwrap_or_default();
+        let size = parts.next().unwrap_or_default();
+        let created = parts.next().unwrap_or_default();
+        images.push(DockerImage {
+            id: id.to_string(),
+            repository: repository.to_string(),
+            tag: tag.to_string(),
+            size: size.to_string(),
+            created: created.to_string(),
+        });
+    }
+    images
+}
+
+/// Remove uma imagem do host via `docker rmi` (ou `podman rmi`).
+#[tauri::command]
+pub async fn docker_image_rm(
+    state: State<'_, AppState>,
+    session_id: String,
+    image: String,
+    force: Option<bool>,
+) -> AppResult<()> {
+    if image.is_empty()
+        || image.starts_with('-')
+        || !image
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-' | '/' | ':' | '@'))
+    {
+        return Err(AppError::msg("identificador de imagem inválido"));
+    }
+
+    let args = if force.unwrap_or(false) {
+        format!("rmi -f {image}")
+    } else {
+        format!("rmi {image}")
+    };
+    let handle = state.sessions.get(&session_id).await?;
+    let cmd = docker_or_podman_cmd(is_win_local_session(&handle.info.connection_id), &args);
+
+    let (exit_code, out) = handle.exec(cmd).await?;
+    if exit_code != 0 {
+        let msg = String::from_utf8_lossy(&out).trim().to_string();
+        return Err(AppError::msg(if msg.is_empty() {
+            format!("falha ao remover imagem {image}")
+        } else {
+            msg
+        }));
+    }
+
+    let name = state
+        .db
+        .get_connection(&handle.info.connection_id)
+        .map(|c| c.name)
+        .unwrap_or_else(|_| "Terminal local".into());
+    state.db.log_event(
+        "info",
+        "docker",
+        Some(&handle.info.connection_id),
+        &name,
+        &format!("imagem removida: {image}"),
+    );
+    Ok(())
 }
 
 /// Ciclo de vida de um container: `start`, `stop`, `restart` ou `rm`.
@@ -469,16 +601,7 @@ pub async fn docker_action(
         format!("{action} {container}")
     };
     let handle = state.sessions.get(&session_id).await?;
-    let is_win_local =
-        cfg!(target_os = "windows") && handle.info.connection_id == crate::local::LOCAL_CONNECTION_ID;
-    let cmd = if is_win_local {
-        format!("if (Get-Command docker -ErrorAction SilentlyContinue) {{ docker {args} }} elseif (Get-Command podman -ErrorAction SilentlyContinue) {{ podman {args} }} else {{ exit 1 }}")
-    } else {
-        format!(
-            "command -v docker >/dev/null 2>&1 && docker {args} || \
-             (command -v podman >/dev/null 2>&1 && podman {args})"
-        )
-    };
+    let cmd = docker_or_podman_cmd(is_win_local_session(&handle.info.connection_id), &args);
 
     let (exit_code, out) = handle.exec(cmd).await?;
     if exit_code != 0 {
@@ -513,4 +636,29 @@ pub async fn ssh_ping(state: State<'_, AppState>, session_id: String) -> AppResu
         .await
         .map(|_| ())
         .map_err(|_| AppError::NoSession(session_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_docker_images_output_and_skips_blank_lines() {
+        let out = "a1b2c3d4e5f6\tnginx\t1.27-alpine\t43.2MB\t2 weeks ago\r\n\n\
+                   f6e5d4c3b2a1\t<none>\t<none>\t120MB\t3 days ago\n";
+        let images = parse_docker_images(out);
+        assert_eq!(images.len(), 2);
+        assert_eq!(
+            images[0],
+            DockerImage {
+                id: "a1b2c3d4e5f6".into(),
+                repository: "nginx".into(),
+                tag: "1.27-alpine".into(),
+                size: "43.2MB".into(),
+                created: "2 weeks ago".into(),
+            }
+        );
+        assert_eq!(images[1].repository, "<none>");
+        assert_eq!(images[1].tag, "<none>");
+    }
 }
