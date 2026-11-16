@@ -18,7 +18,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 
-russh = "0.62"
+russh = { version = "0.62", default-features = false, features = ["flate2", "ring", "rsa"] }
 russh-sftp = "2.3"
 # ssh-key NÃO entra como dependência direta: o russh fixa `=0.7.0-rc.11` e uma
 # segunda cópia do crate faria `HashAlg`/`PublicKey` virarem tipos incompatíveis.
