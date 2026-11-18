@@ -5,7 +5,7 @@ import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { Spinner } from "./Dialogs";
 import { api, asAppError } from "../lib/ipc";
 import { defaultShellPlaceholder, isWindows, modKey, modShiftKey } from "../lib/platform";
-import { useAppStore } from "../store/useAppStore";
+import { type ShiftEnterMode, useAppStore } from "../store/useAppStore";
 
 /**
  * Preferências do app — a primeira aba da tela de configurações (⌘,).
@@ -126,22 +126,44 @@ export function PreferencesTab() {
         "Salva a saída do terminal em arquivos (0600) na pasta de gravações. Cuidado: registra tudo que aparece na tela, inclusive segredos. As gravações ficam no painel de gestão → Gravações.",
       )}
 
-      <div className="field" style={{ maxWidth: 260 }}>
-        <label>Formato da gravação</label>
-        <select
-          value={settings.recordFormat}
-          onChange={(e) =>
-            setSettings({ recordFormat: e.target.value as "text" | "cast" })
-          }
-        >
-          <option value="text">Texto legível (.log)</option>
-          <option value="cast">asciicast com replay (.cast)</option>
-        </select>
-        <span className="muted" style={{ fontSize: 11 }}>
-          O texto sai sem códigos de cor, bom para ler e pesquisar. O asciicast guarda o
-          tempo de cada saída e é reproduzível no player embutido (e em qualquer player
-          de asciinema) — é o formato para auditoria.
-        </span>
+      <div className="row">
+        <div className="field">
+          <label>Formato da gravação</label>
+          <select
+            value={settings.recordFormat}
+            onChange={(e) =>
+              setSettings({ recordFormat: e.target.value as "text" | "cast" })
+            }
+          >
+            <option value="text">Texto legível (.log)</option>
+            <option value="cast">asciicast com replay (.cast)</option>
+          </select>
+          <span className="muted" style={{ fontSize: 11 }}>
+            O texto sai sem códigos de cor, bom para ler e pesquisar. O asciicast guarda o
+            tempo de cada saída e é reproduzível no player embutido (e em qualquer player
+            de asciinema) — é o formato para auditoria.
+          </span>
+        </div>
+
+        <div className="field">
+          <label>Shift+Enter no terminal (quebra de linha sem enviar)</label>
+          <select
+            value={settings.shiftEnterMode ?? "auto"}
+            onChange={(e) =>
+              setSettings({ shiftEnterMode: e.target.value as ShiftEnterMode })
+            }
+          >
+            <option value="auto">Automático (CLIs de IA: Kitty CSI u / Esc+Enter)</option>
+            <option value="csi-u">CSI u (\e[13;2u) — Kitty / CLIs modernas</option>
+            <option value="alt-enter">Esc + Enter (\e\r) — fallback estilo VS Code</option>
+            <option value="paste-nl">Nova linha literal (Bracketed Paste — bash/zsh)</option>
+          </select>
+          <span className="muted" style={{ fontSize: 11 }}>
+            Insere quebra de linha em CLIs como Claude Code, Gemini CLI e Codex sem
+            submeter a mensagem. No modo automático usa CSI u quando a CLI ativa o
+            protocolo Kitty, e Esc+Enter nos demais casos (ex.: dentro do tmux).
+          </span>
+        </div>
       </div>
 
       <div

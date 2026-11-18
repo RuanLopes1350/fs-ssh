@@ -288,6 +288,18 @@ export interface ExecResult {
   output: string;
 }
 
+export type ContainerEngineKind = "docker" | "podman" | "k3s" | "microk8s" | "kubectl";
+
+export interface ContainerRuntime {
+  kind: ContainerEngineKind;
+  /** Rótulo curto para a UI ("Docker", "Podman", "k3s", "MicroK8s", "Kubernetes"). */
+  label: string;
+  /** Comando base para interações no PTY (ex: "docker", "podman", "k3s kubectl", "sudo k3s kubectl", "kubectl"). */
+  cli: string;
+  /** Indica se o socket/configuração do runtime está ativo no host. */
+  active: boolean;
+}
+
 export interface DockerContainer {
   id: string;
   name: string;
@@ -303,6 +315,18 @@ export interface DockerImage {
   tag: string;
   size: string;
   created: string;
+}
+
+export interface KubePod {
+  namespace: string;
+  name: string;
+  ready: string;
+  status: string;
+  restarts: string;
+  age: string;
+  image: string;
+  node: string;
+  running: boolean;
 }
 
 /** Um endereço de uma interface, com prefixo e (em IPv4) máscara decimal. */

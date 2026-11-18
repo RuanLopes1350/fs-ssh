@@ -74,6 +74,9 @@ export interface Tab {
   activePaneId: string;
 }
 
+/** Modo de quebra de linha ao pressionar Shift+Enter no terminal. */
+export type ShiftEnterMode = "auto" | "csi-u" | "alt-enter" | "paste-nl";
+
 /** Preferências persistidas — a tela de configurações edita isto. */
 export interface Settings {
   /** Reabrir as abas da última sessão ao iniciar (pergunta antes de conectar). */
@@ -95,6 +98,8 @@ export interface Settings {
    * timing e replay no player embutido).
    */
   recordFormat: "text" | "cast";
+  /** Sequência enviada ao pressionar Shift+Enter no terminal. */
+  shiftEnterMode: ShiftEnterMode;
 }
 
 /** Conexão sintética do terminal local — nunca vai para o banco. */
@@ -351,6 +356,7 @@ export const useAppStore = create<AppStore>()(
         dimInactivePanes: true,
         recordHistory: true,
         recordFormat: "text",
+        shiftEnterMode: "auto",
       },
       history: [],
       lastSessionConnectionIds: [],

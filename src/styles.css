@@ -1697,6 +1697,51 @@ textarea:focus {
   flex: none;
 }
 
+.docker__engines {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.docker__engine-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.4;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.docker__engine-pill:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.docker__engine-pill[data-active="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #05080f;
+  font-weight: 600;
+}
+
+.docker__engine-pill[data-inactive="true"]:not([data-active="true"]) {
+  opacity: 0.65;
+}
+
+.docker__ns-select {
+  width: auto;
+  max-width: 46%;
+  flex: none;
+  font-size: 11px;
+  padding: 4px 6px;
+}
+
 /* Rede do host: mesma moldura do painel de containers, conteúdo em fichas. */
 .netinfo {
   width: 30%;

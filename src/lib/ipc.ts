@@ -4,6 +4,8 @@ import type {
   AutostartResult,
   Checksum,
   Connection,
+  ContainerEngineKind,
+  ContainerRuntime,
   DiffEntry,
   DockerContainer,
   DockerImage,
@@ -13,6 +15,7 @@ import type {
   Recording,
   Identity,
   KnownHost,
+  KubePod,
   LocalEntry,
   LogEntry,
   LogQuery,
@@ -162,15 +165,36 @@ export const api = {
 
   sshExec: (sessionId: string, command: string) =>
     invoke<ExecResult>("ssh_exec", { sessionId, command }),
-  dockerPs: (sessionId: string) => invoke<DockerContainer[]>("docker_ps", { sessionId }),
-  dockerImages: (sessionId: string) => invoke<DockerImage[]>("docker_images", { sessionId }),
+  containerRuntimes: (sessionId: string) =>
+    invoke<ContainerRuntime[]>("container_runtimes", { sessionId }),
+  dockerPs: (sessionId: string, engine?: ContainerEngineKind) =>
+    invoke<DockerContainer[]>("docker_ps", { sessionId, engine }),
+  dockerImages: (sessionId: string, engine?: ContainerEngineKind) =>
+    invoke<DockerImage[]>("docker_images", { sessionId, engine }),
   dockerAction: (
     sessionId: string,
     action: "start" | "stop" | "restart" | "rm",
     container: string,
-  ) => invoke<void>("docker_action", { sessionId, action, container }),
-  dockerImageRm: (sessionId: string, image: string, force = false) =>
-    invoke<void>("docker_image_rm", { sessionId, image, force }),
+    engine?: ContainerEngineKind,
+  ) => invoke<void>("docker_action", { sessionId, action, container, engine }),
+  dockerImageRm: (
+    sessionId: string,
+    image: string,
+    force = false,
+    engine?: ContainerEngineKind,
+  ) => invoke<void>("docker_image_rm", { sessionId, image, force, engine }),
+  kubePods: (sessionId: string, engine?: ContainerEngineKind) =>
+    invoke<KubePod[]>("kube_pods", { sessionId, engine }),
+  kubePodDelete: (
+    sessionId: string,
+    namespace: string,
+    pod: string,
+    engine?: ContainerEngineKind,
+  ) => invoke<void>("kube_pod_delete", { sessionId, namespace, pod, engine }),
+  kubeImages: (sessionId: string, engine?: ContainerEngineKind) =>
+    invoke<DockerImage[]>("kube_images", { sessionId, engine }),
+  kubeImageRm: (sessionId: string, image: string, engine?: ContainerEngineKind) =>
+    invoke<void>("kube_image_rm", { sessionId, image, engine }),
   netInfo: (sessionId: string) => invoke<NetInfo>("net_info", { sessionId }),
 
   // ------------------------------------------------ observabilidade do host

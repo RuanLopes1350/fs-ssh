@@ -58,6 +58,7 @@ import { TunnelsPanel } from "./tunnels/TunnelsPanel";
 import {
   setCommandSink,
   setInputRouter,
+  setShiftEnterMode,
   TerminalSession,
   terminals,
 } from "./terminal/session";
@@ -102,6 +103,7 @@ export default function App() {
   const sidebarRail = useAppStore((s) => s.sidebarRail);
   const focusMode = useAppStore((s) => s.focusMode);
   const dimPanes = useAppStore((s) => s.settings.dimInactivePanes);
+  const shiftEnterMode = useAppStore((s) => s.settings.shiftEnterMode ?? "auto");
   const loadAll = useAppStore((s) => s.loadAll);
 
   const [editing, setEditing] = useState<Connection | null>(null);
@@ -737,6 +739,11 @@ export default function App() {
     terminals.forEach((t) => t.setFontSize(fontSize));
   }, [fontSize]);
 
+  // Comportamento do Shift+Enter aplicado imediatamente a todos os terminais.
+  useEffect(() => {
+    setShiftEnterMode(shiftEnterMode);
+  }, [shiftEnterMode]);
+
   // Broadcast: o que for digitado em qualquer painel vai para todas as sessões
   // abertas. Um único `ssh_broadcast` no backend evita N round-trips de IPC por
   // tecla.
@@ -1155,13 +1162,13 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
-              aria-label="Painel Docker"
+              aria-label={`Containers e Kubernetes (${modShiftKey("C")})`}
               data-active={openPanel === "docker"}
               disabled={!activePane?.sessionId}
               title={
                 isLocalPane
-                  ? "Docker/Podman desta máquina (containers e imagens)"
-                  : "Docker/Podman deste host (containers e imagens)"
+                  ? `Containers e Kubernetes desta máquina: Docker, Podman, k3s (${modShiftKey("C")})`
+                  : `Containers e Kubernetes deste host: Docker, Podman, k3s (${modShiftKey("C")})`
               }
               onClick={() => useAppStore.getState().togglePanel("docker")}
             >

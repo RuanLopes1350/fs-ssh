@@ -10,6 +10,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, Channel } from "../lib/ipc";
 import { isLocalConnection, wslDistroName } from "../lib/types";
 import type { AppError, SessionInfo, TerminalPalette } from "../lib/types";
+import type { ShiftEnterMode } from "../store/useAppStore";
 
 const encoder = new TextEncoder();
 
@@ -54,6 +55,8 @@ export class TerminalSession {
   private lineDirty = false;
   /** Fim do prompt desta sessão, aprendido com as linhas digitadas inteiras. */
   private promptEnd: string | null = null;
+  /** Pilha do protocolo de teclado Kitty (`CSI > flags u` / `CSI < u`). */
+  private kittyFlags: number[] = [];
 
   constructor(
     readonly connectionId: string,
@@ -91,10 +94,36 @@ export class TerminalSession {
         void openUrl(uri);
       }),
     );
+
+    // Acompanha ativação/desativação do protocolo Kitty (Claude Code, Codex,
+    // Gemini CLI, Neovim) para decidir entre CSI u e Esc+Enter no modo auto.
+    this.term.parser.registerCsiHandler({ prefix: ">", final: "u" }, (params) => {
+      const flags = typeof params[0] === "number" ? params[0] : 0;
+      this.kittyFlags.push(flags);
+      if (this.kittyFlags.length > 32) this.kittyFlags.shift();
+      return true;
+    });
+    this.term.parser.registerCsiHandler({ prefix: "<", final: "u" }, (params) => {
+      const count = typeof params[0] === "number" && params[0] > 0 ? params[0] : 1;
+      for (let i = 0; i < count && this.kittyFlags.length > 0; i++) {
+        this.kittyFlags.pop();
+      }
+      return true;
+    });
+    this.term.parser.registerCsiHandler({ prefix: "=", final: "u" }, (params) => {
+      const flags = typeof params[0] === "number" ? params[0] : 0;
+      const mode = typeof params[1] === "number" ? params[1] : 1;
+      const cur = this.kittyFlags.length ? this.kittyFlags[this.kittyFlags.length - 1] : 0;
+      const next = mode === 2 ? cur | flags : mode === 3 ? cur & ~flags : flags;
+      if (this.kittyFlags.length) this.kittyFlags[this.kittyFlags.length - 1] = next;
+      else this.kittyFlags.push(next);
+      return true;
+    });
   }
 
   /** Conecta ao servidor e começa a receber bytes. */
   async connect(secret?: string, jumpSecret?: string): Promise<SessionInfo> {
+    this.kittyFlags = [];
     const onOutput = new Channel<ArrayBuffer>();
     onOutput.onmessage = (buf) => {
       // Uint8Array direto: o xterm decodifica UTF-8 internamente e evita o
@@ -137,6 +166,15 @@ export class TerminalSession {
 
     if (!this.inputWired) {
       this.inputWired = true;
+
+      this.term.attachCustomKeyEventHandler((ev) => {
+        if (!isShiftEnter(ev)) return true;
+        if (ev.type === "keydown" && !ev.isComposing) {
+          ev.preventDefault();
+          this.sendShiftEnter();
+        }
+        return false;
+      });
 
       this.term.onData((data) => {
         this.trackInput(data);
@@ -278,6 +316,31 @@ export class TerminalSession {
    * barrar aqui evita uma ida à IPC (e um erro na tela) a cada tecla.
    */
   readOnly = false;
+
+  /** Envia a sequência de quebra de linha do Shift+Enter sem submeter o prompt. */
+  private sendShiftEnter() {
+    let seq: string;
+    switch (shiftEnterMode) {
+      case "csi-u":
+        seq = "\x1b[13;2u";
+        break;
+      case "alt-enter":
+        seq = "\x1b\r";
+        break;
+      case "paste-nl":
+        seq = this.term.modes.bracketedPasteMode ? `${PASTE_START}\n${PASTE_END}` : "\n";
+        break;
+      case "auto":
+      default: {
+        const kittyActive =
+          this.kittyFlags.length > 0 && this.kittyFlags[this.kittyFlags.length - 1] > 0;
+        seq = kittyActive ? "\x1b[13;2u" : "\x1b\r";
+        break;
+      }
+    }
+    this.lineDirty = true;
+    this.send(Array.from(encoder.encode(seq)));
+  }
 
   private send(bytes: number[]) {
     if (!this.info || this.closed || this.readOnly) return;
@@ -453,6 +516,23 @@ let commandSink: ((connectionId: string, command: string) => void) | null = null
 
 export function setCommandSink(fn: typeof commandSink) {
   commandSink = fn;
+}
+
+/** Modo ativo de Shift+Enter compartilhado entre todas as sessões abertas. */
+let shiftEnterMode: ShiftEnterMode = "auto";
+
+export function setShiftEnterMode(mode: ShiftEnterMode) {
+  shiftEnterMode = mode;
+}
+
+function isShiftEnter(ev: KeyboardEvent): boolean {
+  return (
+    ev.key === "Enter" &&
+    ev.shiftKey &&
+    !ev.ctrlKey &&
+    !ev.altKey &&
+    !ev.metaKey
+  );
 }
 
 function escapeHtml(value: string) {
