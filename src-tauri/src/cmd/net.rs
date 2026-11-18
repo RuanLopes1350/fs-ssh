@@ -50,6 +50,47 @@ if command -v scutil >/dev/null 2>&1; then
 fi
 exit 0"#;
 
+/// Coletor PowerShell para o terminal local nativo do Windows (`__local__`),
+/// emitindo as mesmas seções (`##HOST`, `##IPADDR`, `##IPROUTE`, `##RESOLV`)
+/// esperadas por `parse_net_info`.
+const WINDOWS_NET_SCRIPT: &str = r#"Write-Output '##HOST'
+[System.Net.Dns]::GetHostName()
+Write-Output '##IPADDR'
+Get-NetAdapter -ErrorAction SilentlyContinue | ForEach-Object {
+  $n = ($_.Name -replace '\s+', '_')
+  $up = if ($_.Status -eq 'Up') { 'UP' } else { 'DOWN' }
+  $mac = ($_.MacAddress -replace '-', ':')
+  if ($mac) {
+    Write-Output "$($_.ifIndex): ${n}: <$up> link/ether $mac"
+  } else {
+    Write-Output "$($_.ifIndex): ${n}: <$up>"
+  }
+}
+Get-NetIPAddress -ErrorAction SilentlyContinue | ForEach-Object {
+  $n = ($_.InterfaceAlias -replace '\s+', '_')
+  $addr = ($_.IPAddress -split '%')[0]
+  if ($_.AddressFamily -eq 'IPv4') {
+    Write-Output "$($_.InterfaceIndex): $n inet $addr/$($_.PrefixLength)"
+  } elseif ($_.AddressFamily -eq 'IPv6') {
+    Write-Output "$($_.InterfaceIndex): $n inet6 $addr/$($_.PrefixLength)"
+  }
+}
+Write-Output '##IPROUTE'
+Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | ForEach-Object {
+  $n = ($_.InterfaceAlias -replace '\s+', '_')
+  Write-Output "default via $($_.NextHop) dev $n"
+}
+Write-Output '##RESOLV'
+Get-DnsClientServerAddress -ErrorAction SilentlyContinue | ForEach-Object {
+  foreach ($s in $_.ServerAddresses) {
+    if ($s) { Write-Output "nameserver $s" }
+  }
+}
+$suffixes = (Get-DnsClientGlobalSetting -ErrorAction SilentlyContinue).SuffixSearchList
+if ($suffixes) {
+  Write-Output ("search " + ($suffixes -join ' '))
+}"#;
+
 #[derive(Debug, Default, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetAddr {
@@ -94,7 +135,14 @@ pub struct NetInfo {
 #[tauri::command]
 pub async fn net_info(state: State<'_, AppState>, session_id: String) -> AppResult<NetInfo> {
     let handle = state.sessions.get(&session_id).await?;
-    let (_exit_code, out) = handle.exec(NET_SCRIPT.to_string()).await?;
+    let script = if cfg!(target_os = "windows")
+        && handle.info.connection_id == crate::local::LOCAL_CONNECTION_ID
+    {
+        WINDOWS_NET_SCRIPT
+    } else {
+        NET_SCRIPT
+    };
+    let (_exit_code, out) = handle.exec(script.to_string()).await?;
     let info = parse_net_info(&String::from_utf8_lossy(&out));
 
     // Código de saída não serve de critério: o script termina em `exit 0` de

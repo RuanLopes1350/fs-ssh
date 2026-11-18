@@ -4,14 +4,18 @@ import type {
   AutostartResult,
   Checksum,
   Connection,
+  ContainerEngineKind,
+  ContainerRuntime,
   DiffEntry,
   DockerContainer,
+  DockerImage,
   ExecResult,
   Folder,
   PortForward,
   Recording,
   Identity,
   KnownHost,
+  KubePod,
   LocalEntry,
   LogEntry,
   LogQuery,
@@ -31,6 +35,7 @@ import type {
   Theme,
   Transfer,
   WalkEntry,
+  WslDistro,
 } from "./types";
 
 /**
@@ -102,11 +107,19 @@ export const api = {
     onOutput: Channel<ArrayBuffer>,
   ) => invoke<SessionInfo>("ssh_connect", { args, onOutput }),
 
-  /** Abre um shell local com PTY — mesma interface de uma sessão SSH. */
+  /** Abre um shell local com PTY (nativo ou WSL) — mesma interface de uma sessão SSH. */
   localOpen: (
-    args: { cols: number; rows: number; shell?: string; connectionId?: string },
+    args: {
+      cols: number;
+      rows: number;
+      shell?: string;
+      wslDistro?: string | null;
+      connectionId?: string;
+    },
     onOutput: Channel<ArrayBuffer>,
   ) => invoke<SessionInfo>("local_open", { ...args, onOutput }),
+  /** Lista distribuições WSL instaladas (retorna vazio fora do Windows). */
+  wslList: () => invoke<WslDistro[]>("wsl_list"),
 
   /** Detalhes de disponibilidade e distros do WSL no Windows. */
   wslInfo: () =>
@@ -164,12 +177,36 @@ export const api = {
 
   sshExec: (sessionId: string, command: string) =>
     invoke<ExecResult>("ssh_exec", { sessionId, command }),
-  dockerPs: (sessionId: string) => invoke<DockerContainer[]>("docker_ps", { sessionId }),
+  containerRuntimes: (sessionId: string) =>
+    invoke<ContainerRuntime[]>("container_runtimes", { sessionId }),
+  dockerPs: (sessionId: string, engine?: ContainerEngineKind) =>
+    invoke<DockerContainer[]>("docker_ps", { sessionId, engine }),
+  dockerImages: (sessionId: string, engine?: ContainerEngineKind) =>
+    invoke<DockerImage[]>("docker_images", { sessionId, engine }),
   dockerAction: (
     sessionId: string,
     action: "start" | "stop" | "restart" | "rm",
     container: string,
-  ) => invoke<void>("docker_action", { sessionId, action, container }),
+    engine?: ContainerEngineKind,
+  ) => invoke<void>("docker_action", { sessionId, action, container, engine }),
+  dockerImageRm: (
+    sessionId: string,
+    image: string,
+    force = false,
+    engine?: ContainerEngineKind,
+  ) => invoke<void>("docker_image_rm", { sessionId, image, force, engine }),
+  kubePods: (sessionId: string, engine?: ContainerEngineKind) =>
+    invoke<KubePod[]>("kube_pods", { sessionId, engine }),
+  kubePodDelete: (
+    sessionId: string,
+    namespace: string,
+    pod: string,
+    engine?: ContainerEngineKind,
+  ) => invoke<void>("kube_pod_delete", { sessionId, namespace, pod, engine }),
+  kubeImages: (sessionId: string, engine?: ContainerEngineKind) =>
+    invoke<DockerImage[]>("kube_images", { sessionId, engine }),
+  kubeImageRm: (sessionId: string, image: string, engine?: ContainerEngineKind) =>
+    invoke<void>("kube_image_rm", { sessionId, image, engine }),
   netInfo: (sessionId: string) => invoke<NetInfo>("net_info", { sessionId }),
 
   // ------------------------------------------------ observabilidade do host
@@ -275,6 +312,7 @@ export const api = {
   // ---------------------------------------------------------------- chaves
 
   keysList: () => invoke<Identity[]>("keys_list"),
+  keysImportFile: (path: string) => invoke<Identity>("keys_import_file", { path }),
   keysGenerate: (args: {
     kind: "ed25519" | "rsa";
     name: string;

@@ -14,9 +14,9 @@ Cliente SSH/SFTP multiplataforma (**Windows**, **Linux** e **macOS**) com identi
 - **~150 ícones**: sistemas operacionais, clouds, containers, IaC, CI/CD, web/proxy, bancos, mensageria, monitoramento, rede/VPN, runtimes, storage e self-hosted — mais genéricos de categoria (servidor, rack, VM, firewall, load balancer, roteador…), todos pintados com a cor da conexão.
 - **Importação do `~/.ssh/config`** (blocos `Host`, herança de `Host *`, `ProxyJump`) com pré-visualização e detecção de duplicatas.
 - Marcação de **produção**: confirmação extra ao conectar, badge PROD, faixa vermelha na sessão e exclusão do broadcast por padrão.
-- **Terminal local & WSL dedicado**:
-  - **Terminal local**: abre um PTY real na máquina host — `powershell.exe` por padrão no Windows, `$SHELL -l` no Linux (fallback `/bin/bash`) e `$SHELL -l` no macOS (fallback `/bin/zsh`). O shell pode ser customizado nas Preferências.
-  - **WSL (Linux) no Windows**: no Windows, o backend detecta automaticamente a presença de `C:\Windows\System32\wsl.exe` e lista todas as distribuições instaladas (`wsl -l -q`). Um atalho dedicado **WSL (Linux)** é exibido diretamente na barra lateral, na paleta de comandos (`Ctrl+K`) e no divisor de telas (`Ctrl+D`), permitindo operar PowerShell e WSL lado a lado sem alterar configurações. Nas Preferências (`Ctrl+,`), você pode escolher a distribuição desejada com um clique (ex.: `wsl -d Ubuntu-26.04 ~`), definir argumentos customizados ou ocultar o atalho na barra lateral.
+- **Terminal local & WSL integrado**:
+  - **Terminal local**: abre um PTY real na máquina host — `pwsh.exe` / `powershell.exe` por padrão no Windows, `$SHELL -l` no Linux (fallback `/bin/bash`) e `$SHELL -l` no macOS (fallback `/bin/zsh`). O shell pode ser customizado nas Preferências.
+  - **WSL (Linux) no Windows**: no Windows, o backend detecta automaticamente `C:\Windows\System32\wsl.exe` / `wsl.exe --list --quiet`, lista todas as distribuições instaladas com seus respectivos ícones (Ubuntu, Debian, Arch, Kali, Fedora, etc.) em uma seção **WSL** dedicada na barra lateral, na paleta de comandos (`Ctrl+K`) e no divisor de telas (`Ctrl+D`), permitindo operar PowerShell e múltiplas distros WSL lado a lado. Nas Preferências (`Ctrl+,`), também é possível selecionar/definir um comando WSL customizado ou ocultar os atalhos do WSL da barra lateral.
 - **Backup do banco** em um clique (`VACUUM INTO`, seguro com o app aberto).
 
 ### Terminal
@@ -32,7 +32,7 @@ Cliente SSH/SFTP multiplataforma (**Windows**, **Linux** e **macOS**) com identi
 ### Autenticação e chaves
 - Pipeline `ssh-agent → chave em disco → senha`, configurável por conexão; fallback para `keyboard-interactive`.
 - **Jump host (bastion)** como o `ProxyJump` do OpenSSH, com prompt de senha separado do destino.
-- Gestão de chaves: varredura de `~/.ssh`, chaves só-agente (Secretive/1Password/OpenSSH Agent), geração **Ed25519/RSA-4096** com passphrase, carregar no `ssh-agent` (via socket Unix no Linux/macOS — com suporte a Keychain do macOS — e via named pipe nativo no Windows).
+- Gestão de chaves: varredura de `~/.ssh`, chaves só-agente (Secretive/1Password/OpenSSH Agent), geração **Ed25519/RSA-4096** com passphrase, carregar no `ssh-agent` (`--apple-use-keychain` no macOS, socket Unix no Linux/macOS e named pipe `openssh-ssh-agent` no Windows).
 - **Instalar chave no servidor** (equivalente ao `ssh-copy-id`) usando a sessão já autenticada.
 
 ### SFTP
@@ -53,10 +53,10 @@ Cliente SSH/SFTP multiplataforma (**Windows**, **Linux** e **macOS**) com identi
 - Painel para criar, excluir, ligar/desligar em tempo real, com status e erros visíveis.
 - Funciona através de jump host; bind local padrão em `127.0.0.1`.
 
-### Docker/Podman (remoto e local)
-- Lista os containers do host conectado — ou da própria máquina (inclusive via WSL no Windows) — via canal exec, sem instalar nada no servidor.
-- **Iniciar, parar, reiniciar e excluir**, com confirmação nas ações que derrubam serviço e o erro do docker mostrado na íntegra.
-- "Shell no container" e "logs": o comando é digitado no terminal, à vista.
+### Docker / Podman / Kubernetes (k3s) (remoto e local)
+- Detecção automática de runtimes ativos no host (**Docker**, **Podman** e **Kubernetes/k3s** via `kubectl`/`crictl`), inclusive em sessões locais/WSL.
+- Lista containers, pods e imagens locais/do cluster, com ações de **iniciar, parar, reiniciar, remover** (containers/pods/imagens) com confirmação e exibição integral de erros.
+- "Shell no container/pod" e "logs": o comando é digitado no terminal, à vista.
 
 ### Sistema do host (remoto e local)
 - Painel (⌘⇧S / Ctrl+Shift+S) com seis abas, todas pelo canal exec — nada instalado no servidor:
@@ -111,7 +111,7 @@ Cliente SSH/SFTP multiplataforma (**Windows**, **Linux** e **macOS**) com identi
 
 ## Atalhos
 
-> **Nota multiplataforma:** nos sistemas **Windows** e **Linux**, substitua `⌘` por `Ctrl` e `⌥` por `Alt`.
+> **Nota multiplataforma:** no **macOS**, o modificador principal é `⌘` (e `⌥`/`⇧`). No **Windows** e no **Linux**, substitua `⌘` por `Ctrl` e `⌥` por `Alt`.
 
 | Atalho (macOS / Win & Linux) | Ação |
 |---|---|
@@ -163,28 +163,28 @@ O `fs-ssh` adapta automaticamente sua camada de sistema para respeitar as conven
 
 ## Guia Completo de Build por Sistema Operacional
 
-Para compilar o aplicativo em qualquer um dos sistemas suportados, basta clonar o repositório em uma máquina com o respectivo sistema operacional e ter os pré-requisitos básicos (**Rust 1.82+**, **Node.js 20+** com `npm` ou `pnpm`, e **NASM** para o backend criptográfico `aws-lc-sys`).
+Para compilar o aplicativo em qualquer um dos sistemas suportados, basta clonar o repositório em uma máquina com o respectivo sistema operacional e ter os pré-requisitos básicos (**Rust 1.82+**, **Node.js 20+** com `npm` ou `pnpm`). O backend SSH utiliza `ring` para criptografia (sem exigir NASM).
 
 ### 1. Linux (Nativo — Ubuntu/Debian, Fedora, Arch)
 
-Instale as dependências de sistema do WebKitGTK/Tauri e o assembler `nasm`:
+Instale as dependências de sistema do WebKitGTK/Tauri (ou use `make deps-linux`):
 
 - **Ubuntu / Debian:**
   ```bash
   sudo apt update
   sudo apt install -y build-essential curl wget file libxdo-dev libssl-dev \
     libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-    libgtk-3-dev libsoup-3.0-dev nasm pkg-config
+    libgtk-3-dev libsoup-3.0-dev patchelf pkg-config
   ```
 - **Fedora:**
   ```bash
   sudo dnf install -y @development-tools curl wget file openssl-devel \
-    webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel gtk3-devel nasm
+    webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel gtk3-devel
   ```
 - **Arch Linux:**
   ```bash
   sudo pacman -S --needed base-devel curl wget file openssl webkit2gtk-4.1 \
-    libappindicator-gtk3 librsvg nasm
+    libappindicator-gtk3 librsvg
   ```
 
 Clone o projeto e execute o build:
@@ -192,14 +192,14 @@ Clone o projeto e execute o build:
 ```bash
 git clone <url-do-repositorio> fs-ssh
 cd fs-ssh
-npm install          # ou: pnpm install
-npm run app:build    # ou: make build
+make build-linux      # ou: npm install && npm run build:linux (deb, rpm, appimage)
+make build-linux-deb  # gera apenas o pacote .deb
 ```
 
 Os artefatos serão gerados em:
 - Binário executável: `src-tauri/target/release/fs-ssh`
 - Pacotes instaladores (`.deb`, `.rpm`, `.AppImage`): `src-tauri/target/release/bundle/`
-- Para instalar diretamente o binário em `~/.local/bin/fs-ssh`, execute `make install`.
+- Para instalar diretamente o binário em `~/.local/bin/fs-ssh` e gerar o `.deb`, execute `make install`.
 
 ---
 
@@ -208,8 +208,7 @@ Os artefatos serão gerados em:
 1. Instale os pré-requisitos no Windows:
    - **Rust**: baixe pelo [rustup.rs](https://rustup.rs/) (selecione a toolchain MSVC ou GNU).
    - **Microsoft C++ Build Tools** (Visual Studio Installer → *Desenvolvimento para desktop com C++*) **ou** MinGW-w64.
-   - **Node.js LTS** (com `npm`).
-   - **NASM** (`winget install NASM.NASM` — necessário para compilar `aws-lc-sys`). Garanta que `nasm.exe` esteja no `PATH`.
+   - **Node.js LTS** (com `npm` ou `pnpm`).
    - **WebView2 Runtime** (já incluso no Windows 10/11).
 2. Caso o PowerShell bloqueie a execução de scripts do `npm` (`PSSecurityException`), libere para o seu usuário ou use `npm.cmd`:
    ```powershell
@@ -220,7 +219,7 @@ Os artefatos serão gerados em:
    git clone <url-do-repositorio> fs-ssh
    cd fs-ssh
    npm install
-   npm run app:build
+   npm run build:windows   # ou: npm run app:build
    ```
 
 Os artefatos serão gerados em:
@@ -233,10 +232,10 @@ Os artefatos serão gerados em:
 
 Você pode compilar o executável e o instalador NSIS do Windows diretamente de dentro do Linux ou WSL2 Ubuntu:
 
-1. Instale os compiladores MinGW-w64, NSIS e NASM no Linux/WSL:
+1. Instale os compiladores MinGW-w64 e NSIS no Linux/WSL:
    ```bash
    sudo apt update
-   sudo apt install -y mingw-w64 nsis nasm
+   sudo apt install -y mingw-w64 nsis
    ```
 2. Adicione o target GNU de Windows no Rust:
    ```bash
@@ -246,7 +245,7 @@ Você pode compilar o executável e o instalador NSIS do Windows diretamente de 
 4. Instale as dependências Node e rode o build cross-platform:
    ```bash
    npm install
-   npm run app:build:windows    # ou: make build-windows
+   npm run build:windows:gnu    # ou: make build-windows-gnu
    ```
 
 Os artefatos de Windows gerados ficam em:
@@ -262,7 +261,7 @@ Os artefatos de Windows gerados ficam em:
    ```bash
    git clone <url-do-repositorio> fs-ssh
    cd fs-ssh
-   make build        # ou: npm install && npm run app:build
+   make build        # ou: npm install && npm run build:macos
    make install      # copia fs-ssh.app para /Applications
    ```
 
@@ -275,14 +274,19 @@ Os artefatos serão gerados em `src-tauri/target/release/bundle/macos/fs-ssh.app
 O projeto conta com atalhos tanto via `npm`/`pnpm` quanto via `Makefile`:
 
 ```bash
-make              # app em modo dev com hot-reload (instala node_modules automaticamente)
-make build        # bundle de release nativo para o SO atual
-make build-windows # bundle de release Windows via cross-compilation (x86_64-pc-windows-gnu)
-make install      # instala o app buildado (macOS: /Applications, Linux: ~/.local/bin)
-make check        # tsc --noEmit + cargo check --all-targets
-make test         # testes unitários Rust
-make test-ssh     # + testes de integração (sobe um sshd em Docker na porta 2222)
-make help         # lista todos os alvos disponíveis
+make                   # app em modo dev com hot-reload (instala node_modules automaticamente)
+make deps-linux        # instala dependências nativas GTK3 / WebKitGTK 4.1 no Linux
+make build             # bundle de release nativo para o SO atual
+make build-linux       # bundle para Linux (.deb, .rpm, .AppImage)
+make build-linux-deb   # bundle apenas .deb
+make build-windows     # bundle nativo Windows (.msi, .exe NSIS)
+make build-windows-gnu # bundle Windows via cross-compilation (x86_64-pc-windows-gnu)
+make build-macos       # bundle para macOS (.app, .dmg)
+make install           # instala o app buildado (macOS: /Applications, Linux: ~/.local/bin + .deb)
+make check             # tsc --noEmit + cargo check --all-targets
+make test              # testes unitários Rust
+make test-ssh          # + testes de integração (sobe um sshd em Docker na porta 2222)
+make help              # lista todos os alvos disponíveis
 ```
 
 O `Makefile` adiciona `~/.local/bin` e `~/.cargo/bin` ao `PATH` automaticamente e detecta se `pnpm` ou `npm` está disponível.
@@ -290,6 +294,6 @@ O `Makefile` adiciona `~/.local/bin` e `~/.cargo/bin` ao `PATH` automaticamente 
 Os testes de integração SSH só executam com `FS_SSH_TEST_SSH=1`; sem essa variável, `cargo test` roda apenas os testes unitários e cenários locais sem depender de Docker.
 
 ## Requisitos Gerais
-- **Windows 10/11** (WebView2), **Linux** (WebKitGTK 4.1) ou **macOS 11+**.
-- **Rust 1.82+**, **Node.js 20+** (`npm` ou `pnpm`) e **NASM** (para compilação do `aws-lc-sys`).
-- Nenhum emulador de terminal externo é necessário: o app implementa o cliente SSH/SFTP direto em Rust e usa o PTY nativo do sistema operacional (ConPTY no Windows, PTY Unix no Linux/macOS).
+- **Windows 10/11** (WebView2 + OpenSSH Agent opcional), **Linux** (WebKitGTK 4.1) ou **macOS 11+**.
+- **Rust 1.82+** e **Node.js 20+** (`npm` ou `pnpm`).
+- Nenhum emulador de terminal externo é necessário: o app implementa o cliente SSH/SFTP direto em Rust e usa o PTY nativo do sistema operacional (ConPTY com PowerShell / WSL no Windows; PTY Unix com `$SHELL` no Linux/macOS).

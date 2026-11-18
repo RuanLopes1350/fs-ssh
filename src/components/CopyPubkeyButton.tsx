@@ -63,7 +63,7 @@ export function CopyPubkeyButton({
         setMenu({
           position,
           items: keys.map((k) => ({
-            label: `${k.path.split("/").pop()} · ${k.keyType}${k.comment ? ` · ${k.comment}` : ""}`,
+            label: `${k.path.split(/[/\\]/).pop()} · ${k.keyType}${k.comment ? ` · ${k.comment}` : ""}`,
             icon: <Copy size={12} />,
             onSelect: () =>
               void copy(k).catch((e) =>

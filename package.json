@@ -13,6 +13,11 @@
     "app:build:windows": "tauri build --target x86_64-pc-windows-gnu --ignore-version-mismatches",
     "app:build:linux": "tauri build --bundles deb,rpm,appimage --ignore-version-mismatches",
     "app:build:macos": "tauri build --bundles app,dmg --ignore-version-mismatches",
+    "build:linux": "tauri build --bundles deb,rpm,appimage --ignore-version-mismatches",
+    "build:linux:deb": "tauri build --bundles deb --ignore-version-mismatches",
+    "build:windows": "tauri build --bundles msi,nsis --ignore-version-mismatches",
+    "build:windows:gnu": "tauri build --target x86_64-pc-windows-gnu --ignore-version-mismatches",
+    "build:macos": "tauri build --bundles dmg,app --ignore-version-mismatches",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

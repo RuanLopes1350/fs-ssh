@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, KeyRound, ShieldQuestion } from "lucide-react";
 
 import type { AuthPrompt, HostKeyPrompt } from "../lib/types";
@@ -63,7 +64,7 @@ export function Modal({
     return () => opener?.focus?.();
   }, []);
 
-  return (
+  return createPortal(
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
         ref={ref}
@@ -85,7 +86,8 @@ export function Modal({
         <div className="modal__body">{children}</div>
         <div className="modal__foot">{footer}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -1,54 +1,55 @@
 import { Keyboard } from "lucide-react";
 
+import { modAltKey, modKey, modShiftKey } from "../lib/platform";
 import { Modal } from "./Dialogs";
 
-/** Grupos de atalhos, na ordem em que aparecem no diálogo (⌘/). */
+/** Grupos de atalhos, na ordem em que aparecem no diálogo. */
 const GROUPS: { title: string; items: [string, string][] }[] = [
   {
     title: "Conexões",
     items: [
-      ["⌘K", "Busca rápida: conectar ou rodar snippet"],
-      ["⌘↵ na busca", "Conectar em split"],
-      ["⌘N", "Nova conexão"],
-      ["⌘L", "Focar a busca da barra lateral"],
+      [modKey("K"), "Busca rápida: conectar ou rodar snippet"],
+      [`${modKey("↵")} na busca`, "Conectar em split"],
+      [modKey("N"), "Nova conexão"],
+      [modKey("L"), "Focar a busca da barra lateral"],
       ["↑ ↓ / ↵", "Navegar e conectar pela lista"],
-      ["⌘R", "Reconectar a sessão do painel"],
+      [modKey("R"), "Reconectar a sessão do painel"],
     ],
   },
   {
     title: "Abas e painéis",
     items: [
-      ["⌘T", "Abrir busca para uma nova aba"],
-      ["⌘D / ⌘⇧D", "Dividir lado a lado / empilhado"],
-      ["⌘W", "Fechar painel (o último fecha a aba)"],
-      ["⌘1…⌘9", "Ir para a aba N (⌘9 = última)"],
-      ["⌘⇧[ / ⌘⇧]", "Aba anterior / seguinte"],
-      ["⌘⌥← → ↑ ↓", "Circular o foco entre painéis"],
+      [modKey("T"), "Abrir busca para uma nova aba"],
+      [`${modKey("D")} / ${modShiftKey("D")}`, "Dividir lado a lado / empilhado"],
+      [modKey("W"), "Fechar painel (o último fecha a aba)"],
+      [`${modKey("1")}…${modKey("9")}`, `Ir para a aba N (${modKey("9")} = última)`],
+      [`${modShiftKey("[")} / ${modShiftKey("]")}`, "Aba anterior / seguinte"],
+      [modAltKey("← → ↑ ↓"), "Circular o foco entre painéis"],
     ],
   },
   {
     title: "Painéis laterais",
     items: [
-      ["⌘E", "Arquivos (SFTP)"],
-      ["⌘⇧C", "Containers Docker/Podman"],
-      ["⌘⇧N", "Rede do host (IP, máscara, gateway, DNS)"],
-      ["⌘⇧S", "Sistema: carga, memória, disco, serviços, portas"],
-      ["⌘⇧T", "Túneis (port forwarding)"],
-      ["⌘⇧H", "Histórico de comandos (clique roda de novo)"],
-      ["⌘,", "Configurações (preferências, backup do banco)"],
-      ["⌘⇧M", "Configurações na aba de chaves, temas e gravações"],
+      [modKey("E"), "Arquivos (SFTP)"],
+      [modShiftKey("C"), "Containers Docker/Podman"],
+      [modShiftKey("N"), "Rede do host (IP, máscara, gateway, DNS)"],
+      [modShiftKey("S"), "Sistema: carga, memória, disco, serviços, portas"],
+      [modShiftKey("T"), "Túneis (port forwarding)"],
+      [modShiftKey("H"), "Histórico de comandos (clique roda de novo)"],
+      [modKey(","), "Configurações (preferências, backup do banco)"],
+      [modShiftKey("M"), "Configurações na aba de chaves, temas e gravações"],
     ],
   },
   {
     title: "Terminal e janela",
     items: [
-      ["⌘F", "Buscar no scrollback"],
-      ["⌘+ / ⌘−", "Aumentar / diminuir a fonte"],
-      ["⌘⇧R", "Gravar a sessão"],
-      ["⌘B / ⌘⇧B", "Recolher para ícones / esconder a barra lateral"],
-      ["⌘⇧F", "Focus mode (tela cheia)"],
+      [modKey("F"), "Buscar no scrollback"],
+      [`${modKey("+")} / ${modKey("−")}`, "Aumentar / diminuir a fonte"],
+      [modShiftKey("R"), "Gravar a sessão"],
+      [`${modKey("B")} / ${modShiftKey("B")}`, "Recolher para ícones / esconder a barra lateral"],
+      [modShiftKey("F"), "Focus mode (tela cheia)"],
       ["Esc", "Sair do focus mode ou fechar o que estiver aberto"],
-      ["⌘/", "Esta lista"],
+      [modKey("/"), "Esta lista"],
     ],
   },
 ];

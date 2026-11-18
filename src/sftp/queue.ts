@@ -122,7 +122,7 @@ export const useTransferQueue = create<QueueStore>((set, get) => {
             direction,
             local,
             remote,
-            label: label ?? (direction === "up" ? local : remote).split("/").pop() ?? "",
+            label: label ?? (direction === "up" ? local : remote).split(/[/\\]/).pop() ?? "",
             transferred: 0,
             total: 0,
             status: "queued",

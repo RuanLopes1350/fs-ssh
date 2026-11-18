@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CornerDownLeft, Server, TerminalSquare } from "lucide-react";
 
 import { ConnIcon } from "./Icon";
+import { modKey } from "../lib/platform";
 import { LOCAL_CONNECTION, WSL_CONNECTION, useAppStore } from "../store/useAppStore";
 import type { Connection, Snippet } from "../lib/types";
 
@@ -32,12 +33,11 @@ export function CommandPalette({
   onClose: () => void;
 }) {
   const connections = useAppStore((s) => s.connections);
+  const wslDistros = useAppStore((s) => s.wslDistros);
   const snippets = useAppStore((s) => s.snippets);
-  const showWsl = useAppStore(
-    (s) =>
-      (s.wslAvailable && s.settings.showWslInSidebar !== false) ||
-      s.settings.wslShell.trim() !== "",
-  );
+  const wslAvailable = useAppStore((s) => s.wslAvailable);
+  const wslShell = useAppStore((s) => s.settings.wslShell);
+  const showWslPref = useAppStore((s) => s.settings.showWslInSidebar !== false);
   const [q, setQ] = useState("");
   const [index, setIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -48,12 +48,20 @@ export function CommandPalette({
     const query = q.trim().toLowerCase();
     const match = (s: string) => s.toLowerCase().includes(query);
 
-    const baseConns = showWsl ? [LOCAL_CONNECTION, WSL_CONNECTION] : [LOCAL_CONNECTION];
+    const wslEntries = !showWslPref
+      ? []
+      : wslDistros.length > 0
+        ? wslShell.trim()
+          ? [WSL_CONNECTION, ...wslDistros]
+          : wslDistros
+        : wslAvailable || wslShell.trim()
+          ? [WSL_CONNECTION]
+          : [];
     const conns: PaletteAction[] =
       only === "snippets"
         ? []
-        : // O terminal local (e o WSL quando disponível) entram na lista como qualquer servidor.
-          [...baseConns, ...connections]
+        : // O terminal local e as distros WSL entram na lista como qualquer servidor.
+          [LOCAL_CONNECTION, ...wslEntries, ...connections]
             .filter((c) => !query || match(c.name) || match(c.host) || match(c.username))
             .slice(0, 20)
             .map((connection) => ({ type: "connect", connection }));
@@ -66,7 +74,7 @@ export function CommandPalette({
       : [];
 
     return [...conns, ...snips];
-  }, [q, connections, snippets, hasSession, only, showWsl]);
+  }, [q, connections, wslDistros, snippets, hasSession, only, showWslPref, wslShell, wslAvailable]);
 
   useEffect(() => setIndex(0), [q]);
 
@@ -153,7 +161,7 @@ export function CommandPalette({
           <div className="palette__hint">
             <span className="kbd">↵</span> nova aba
             <span className="kbd" style={{ marginLeft: 10 }}>
-              ⌘↵
+              {modKey("↵")}
             </span>{" "}
             split no painel ativo
           </div>

@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -197,8 +198,10 @@ fn host_key_error(verifier: &HostKeyVerifier, conn: &Conn, e: russh::Error) -> A
 
 /// Pipeline de autenticação: agente → chave em disco → senha.
 ///
-/// O agente vem primeiro de propósito: é o único caminho em que o app nunca toca
-/// no material da chave privada.
+/// Autentica o usuário no handle usando o método configurado na conexão.
+///
+/// Quando a conexão aponta uma identidade com arquivo em disco (`-i`), ele
+/// recebe `chmod 600` e é tentado primeiro para reproduzir `ssh -i <caminho>`.
 async fn authenticate(
     handle: &mut Handle<ClientHandler>,
     conn: &Conn,
@@ -208,8 +211,34 @@ async fn authenticate(
     let user = conn.username.clone();
     let method = conn.auth_method.as_str();
     let mut tried: Vec<String> = Vec::new();
+    let mut deferred_passphrase: Option<AppError> = None;
 
-    if matches!(method, "auto" | "agent") {
+    if matches!(method, "auto" | "key") {
+        if let Some(path_str) = identity.and_then(|i| i.path.as_deref()) {
+            let path = Path::new(path_str);
+            if !path.exists() {
+                if conn.identity_id.is_some() {
+                    return Err(AppError::msg(format!(
+                        "Arquivo de chave não encontrado: {}",
+                        path.display()
+                    )));
+                }
+            } else {
+                tried.push("publickey".into());
+                match try_key_file(handle, &user, path, identity, secret).await {
+                    Ok(true) => return Ok(()),
+                    Ok(false) => {}
+                    Err(e @ AppError::AuthRequired { .. }) if method == "auto" && secret.is_none() => {
+                        // Em modo automático, verifica antes se a chave já está desbloqueada no agente.
+                        deferred_passphrase = Some(e);
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+    }
+
+    if matches!(method, "auto" | "agent") || (method == "key" && identity.is_some()) {
         tried.push("agent".into());
         match try_agent(handle, &user, identity).await {
             Ok(true) => return Ok(()),
@@ -218,37 +247,17 @@ async fn authenticate(
         }
     }
 
-    if matches!(method, "auto" | "key") {
-        if let Some(path) = identity.and_then(|i| i.path.as_deref()) {
-            tried.push("publickey".into());
-            match russh::keys::load_secret_key(path, secret) {
-                Ok(key) => {
-                    let hash_alg = handle
-                        .best_supported_rsa_hash()
-                        .await
-                        .ok()
-                        .flatten()
-                        .flatten();
-                    let key = PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg);
-                    if handle.authenticate_publickey(&user, key).await?.success() {
-                        return Ok(());
-                    }
-                }
-                // A chave está cifrada e não veio passphrase: isso não é falha,
-                // é o app precisando perguntar.
-                Err(russh::keys::Error::KeyIsEncrypted) => {
-                    return Err(AppError::AuthRequired {
-                        kind: "passphrase".into(),
-                        prompt: format!(
-                            "Passphrase da chave {}",
-                            identity.map(|i| i.label.as_str()).unwrap_or(path)
-                        ),
-                        for_jump: false,
-                    });
-                }
-                Err(e) => tracing::warn!("não foi possível ler {path}: {e}"),
-            }
-        }
+    if let Some(err) = deferred_passphrase {
+        return Err(err);
+    }
+
+    if method != "password" && conn.identity_id.is_some() {
+        return Err(AppError::msg(format!(
+            "Servidor recusou a chave '{}' para {}@{} (verifique se o usuário e a chave -i estão corretos)",
+            identity.map(|i| i.label.as_str()).unwrap_or("selecionada"),
+            user,
+            conn.host
+        )));
     }
 
     if matches!(method, "auto" | "password") {
@@ -276,14 +285,55 @@ async fn authenticate(
     Err(AppError::AuthFailed { tried })
 }
 
+async fn try_key_file(
+    handle: &mut Handle<ClientHandler>,
+    user: &str,
+    path: &Path,
+    identity: Option<&Identity>,
+    passphrase: Option<&str>,
+) -> AppResult<bool> {
+    let _ = crate::keys::ensure_private_key_mode(path);
+    match russh::keys::load_secret_key(path, passphrase) {
+        Ok(key) => {
+            let hash_alg = handle
+                .best_supported_rsa_hash()
+                .await
+                .ok()
+                .flatten()
+                .flatten();
+            let key = PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg);
+            Ok(handle.authenticate_publickey(user, key).await?.success())
+        }
+        // A chave está cifrada e não veio passphrase: isso não é falha,
+        // é o app precisando perguntar.
+        Err(russh::keys::Error::KeyIsEncrypted) => Err(AppError::AuthRequired {
+            kind: "passphrase".into(),
+            prompt: format!(
+                "Passphrase da chave {}",
+                identity
+                    .map(|i| i.label.as_str())
+                    .unwrap_or_else(|| path.to_str().unwrap_or("selecionada"))
+            ),
+            for_jump: false,
+        }),
+        Err(e) => {
+            let label = identity
+                .map(|i| i.label.as_str())
+                .unwrap_or_else(|| path.to_str().unwrap_or("selecionada"));
+            Err(AppError::msg(format!(
+                "Não foi possível ler a chave '{label}' ({}): {e}",
+                path.display()
+            )))
+        }
+    }
+}
+
 async fn try_agent(
     handle: &mut Handle<ClientHandler>,
     user: &str,
     identity: Option<&Identity>,
 ) -> AppResult<bool> {
-    let mut agent = crate::keys::connect_agent()
-        .await
-        .map_err(AppError::Key)?;
+    let mut agent = crate::keys::connect_agent().await?;
     let identities = agent.request_identities().await.map_err(AppError::Key)?;
 
     let wanted = identity.map(|i| i.fingerprint.as_str());
@@ -303,6 +353,8 @@ async fn try_agent(
         }) {
             let only = keys.remove(pos);
             keys = vec![only];
+        } else {
+            return Ok(false);
         }
     }
 

@@ -8,8 +8,8 @@ export interface Folder {
 export interface Identity {
   id: string;
   label: string;
-  /** `host` (achada em ~/.ssh), `generated` (criada aqui) ou `agent` (só no agente). */
-  source: "host" | "generated" | "agent";
+  /** `host` (achada em ~/.ssh), `generated` (criada aqui), `imported` (arquivo `-i` apontado) ou `agent` (só no agente). */
+  source: "host" | "generated" | "imported" | "agent";
   path: string | null;
   pubkey: string;
   fingerprint: string;
@@ -58,9 +58,50 @@ export interface Theme {
 export const LOCAL_CONNECTION_ID = "__local__";
 
 /**
- * Id da "conexão" sintética do WSL (Linux no Windows).
+ * Id da "conexão" sintética do WSL genérico (usado quando configurado manualmente
+ * ou como fallback quando nenhuma distribuição específica é listada).
  */
 export const WSL_CONNECTION_ID = "__wsl__";
+
+/**
+ * Prefixo das conexões sintéticas do WSL no Windows (`__wsl__:<distro>`).
+ */
+export const WSL_CONNECTION_PREFIX = "__wsl__:";
+
+/** Distribuição WSL instalada localmente, retornada por `wsl_list`. */
+export interface WslDistro {
+  id: string;
+  name: string;
+  icon: string;
+}
+
+/**
+ * Indica se o id representa qualquer sessão local — seja o shell nativo da
+ * máquina (`__local__`), WSL genérico (`__wsl__`) ou uma distribuição WSL (`__wsl__:<distro>`).
+ */
+export function isLocalConnection(id: string | null | undefined): boolean {
+  return (
+    id === LOCAL_CONNECTION_ID ||
+    id === WSL_CONNECTION_ID ||
+    (typeof id === "string" && id.startsWith(WSL_CONNECTION_PREFIX))
+  );
+}
+
+/** Indica se o id representa uma sessão WSL. */
+export function isWslConnection(id: string | null | undefined): boolean {
+  return (
+    id === WSL_CONNECTION_ID ||
+    (typeof id === "string" && id.startsWith(WSL_CONNECTION_PREFIX))
+  );
+}
+
+/** Extrai o nome da distribuição WSL a partir do `connectionId`, ou `null`. */
+export function wslDistroName(id: string | null | undefined): string | null {
+  if (typeof id === "string" && id.startsWith(WSL_CONNECTION_PREFIX)) {
+    return id.slice(WSL_CONNECTION_PREFIX.length) || null;
+  }
+  return null;
+}
 
 export type AuthMethod = "auto" | "agent" | "key" | "password";
 
@@ -257,12 +298,44 @@ export interface ExecResult {
   output: string;
 }
 
+export type ContainerEngineKind = "docker" | "podman" | "k3s" | "microk8s" | "kubectl";
+
+export interface ContainerRuntime {
+  kind: ContainerEngineKind;
+  /** Rótulo curto para a UI ("Docker", "Podman", "k3s", "MicroK8s", "Kubernetes"). */
+  label: string;
+  /** Comando base para interações no PTY (ex: "docker", "podman", "k3s kubectl", "sudo k3s kubectl", "kubectl"). */
+  cli: string;
+  /** Indica se o socket/configuração do runtime está ativo no host. */
+  active: boolean;
+}
+
 export interface DockerContainer {
   id: string;
   name: string;
   image: string;
   status: string;
   ports: string;
+  running: boolean;
+}
+
+export interface DockerImage {
+  id: string;
+  repository: string;
+  tag: string;
+  size: string;
+  created: string;
+}
+
+export interface KubePod {
+  namespace: string;
+  name: string;
+  ready: string;
+  status: string;
+  restarts: string;
+  age: string;
+  image: string;
+  node: string;
   running: boolean;
 }
 

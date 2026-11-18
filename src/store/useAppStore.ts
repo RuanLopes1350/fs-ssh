@@ -2,8 +2,9 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { api } from "../lib/ipc";
+import { isWindows } from "../lib/platform";
 import { terminals } from "../terminal/session";
-import { LOCAL_CONNECTION_ID, WSL_CONNECTION_ID } from "../lib/types";
+import { isLocalConnection, LOCAL_CONNECTION_ID, WSL_CONNECTION_ID } from "../lib/types";
 import type {
   Connection,
   Folder,
@@ -11,6 +12,7 @@ import type {
   Snippet,
   Theme,
   TerminalPalette,
+  WslDistro,
 } from "../lib/types";
 
 /** Uma sessão SSH viva dentro de uma aba (a aba pode ter vários painéis). */
@@ -72,6 +74,9 @@ export interface Tab {
   activePaneId: string;
 }
 
+/** Modo de quebra de linha ao pressionar Shift+Enter no terminal. */
+export type ShiftEnterMode = "auto" | "csi-u" | "alt-enter" | "paste-nl";
+
 /** Preferências persistidas — a tela de configurações edita isto. */
 export interface Settings {
   /** Reabrir as abas da última sessão ao iniciar (pergunta antes de conectar). */
@@ -97,13 +102,15 @@ export interface Settings {
    * timing e replay no player embutido).
    */
   recordFormat: "text" | "cast";
+  /** Sequência enviada ao pressionar Shift+Enter no terminal. */
+  shiftEnterMode: ShiftEnterMode;
 }
 
 /** Conexão sintética do terminal local — nunca vai para o banco. */
 export const LOCAL_CONNECTION: Connection = {
   id: LOCAL_CONNECTION_ID,
   name: "Terminal local",
-  host: "localhost",
+  host: isWindows ? "PowerShell" : "shell desta máquina",
   port: 0,
   username: "",
   authMethod: "auto",
@@ -121,11 +128,11 @@ export const LOCAL_CONNECTION: Connection = {
   useCount: 0,
 };
 
-/** Conexão sintética do WSL (Linux no Windows) — nunca vai para o banco. */
+/** Conexão sintética do WSL genérico (fallback / comando customizado) — nunca vai para o banco. */
 export const WSL_CONNECTION: Connection = {
   id: WSL_CONNECTION_ID,
   name: "WSL (Linux)",
-  host: "wsl",
+  host: "WSL",
   port: 0,
   username: "",
   authMethod: "auto",
@@ -143,6 +150,43 @@ export const WSL_CONNECTION: Connection = {
   useCount: 0,
 };
 
+const WSL_ICON_COLORS: Record<string, string> = {
+  ubuntu: "#e95420",
+  debian: "#d70a53",
+  alpine: "#0d597f",
+  arch: "#1793d1",
+  fedora: "#51a2da",
+  kali: "#367bf0",
+  opensuse: "#73ba25",
+  rocky: "#10b981",
+  alma: "#0f9d58",
+  redhat: "#ee0000",
+  centos: "#932279",
+  nixos: "#5277c3",
+};
+
+/** Converte uma distribuição WSL em `Connection` sintética para a UI. */
+export function wslDistroToConnection(d: WslDistro): Connection {
+  return {
+    ...LOCAL_CONNECTION,
+    id: d.id,
+    name: d.name,
+    host: "WSL",
+    color: WSL_ICON_COLORS[d.icon] ?? "#f97316",
+    icon: d.icon || "linux",
+  };
+}
+
+/** Resolve uma conexão pelo id entre SSH salvas, terminal local e distros WSL. */
+export function resolveConnection(
+  connections: Connection[],
+  wslDistros: Connection[],
+  id: string,
+): Connection | undefined {
+  if (id === LOCAL_CONNECTION_ID) return LOCAL_CONNECTION;
+  if (id === WSL_CONNECTION_ID) return WSL_CONNECTION;
+  return wslDistros.find((d) => d.id === id) ?? connections.find((c) => c.id === id);
+}
 export const FALLBACK_PALETTE: TerminalPalette = {
   background: "#11141b",
   foreground: "#d8dee9",
@@ -229,13 +273,15 @@ function snapshotSession(tabs: Tab[]): string[] {
     ...new Set(
       tabs
         .flatMap((t) => t.panes.map((p) => p.connectionId))
-        .filter((id) => id && id !== LOCAL_CONNECTION_ID && id !== WSL_CONNECTION_ID),
+        .filter((id) => id && !isLocalConnection(id)),
     ),
   ];
 }
 
 interface AppStore {
   connections: Connection[];
+  /** Distribuições WSL disponíveis localmente no Windows (vazio fora dele). */
+  wslDistros: Connection[];
   folders: Folder[];
   themes: Theme[];
   identities: Identity[];
@@ -314,6 +360,7 @@ export const useAppStore = create<AppStore>()(
   persist(
     (set, get) => ({
       connections: [],
+      wslDistros: [],
       folders: [],
       themes: [],
       identities: [],
@@ -340,6 +387,7 @@ export const useAppStore = create<AppStore>()(
         dimInactivePanes: true,
         recordHistory: true,
         recordFormat: "text",
+        shiftEnterMode: "auto",
       },
       history: [],
       lastSessionConnectionIds: [],
@@ -347,13 +395,20 @@ export const useAppStore = create<AppStore>()(
         typeof navigator !== "undefined" && /win/i.test(navigator.userAgent),
 
       loadAll: async () => {
-        const [connections, folders, themes, snippets] = await Promise.all([
+        const [connections, folders, themes, snippets, distros] = await Promise.all([
           api.connList(),
           api.folderList(),
           api.themeList(),
           api.snippetList(),
+          api.wslList().catch(() => [] as WslDistro[]),
         ]);
-        set({ connections, folders, themes, snippets });
+        set({
+          connections,
+          wslDistros: distros.map(wslDistroToConnection),
+          folders,
+          themes,
+          snippets,
+        });
         // A varredura de chaves toca o disco e o agente; fica fora do Promise.all
         // para não atrasar a primeira pintura da lista de conexões.
         void get().reloadIdentities();
@@ -522,11 +577,11 @@ export const useAppStore = create<AppStore>()(
             t.id === s.activeTabId
               ? {
                   ...t,
-                  panes: t.panes.map((p) =>
-                    p.id === t.activePaneId
-                      ? { ...p, panel: p.panel === kind ? null : kind }
-                      : p,
-                  ),
+                  panes: t.panes.map((p) => {
+                    if (p.id !== t.activePaneId) return p;
+                    if (kind === "sftp" && isLocalConnection(p.connectionId)) return p;
+                    return { ...p, panel: p.panel === kind ? null : kind };
+                  }),
                 }
               : t,
           ),
@@ -559,11 +614,7 @@ export const useAppStore = create<AppStore>()(
             command,
             connectionId,
             connectionName:
-              connectionId === LOCAL_CONNECTION_ID
-                ? LOCAL_CONNECTION.name
-                : connectionId === WSL_CONNECTION_ID
-                  ? WSL_CONNECTION.name
-                  : (s.connections.find((c) => c.id === connectionId)?.name ?? "servidor"),
+              resolveConnection(s.connections, s.wslDistros, connectionId)?.name ?? "servidor",
             at,
           };
           return { history: [entry, ...s.history].slice(0, HISTORY_LIMIT) };

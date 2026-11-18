@@ -39,8 +39,9 @@ import { ManagePanel, type TabKey as ManageTab } from "./connections/ManagePanel
 import { DockerPanel } from "./docker/DockerPanel";
 import { HistoryPanel } from "./history/HistoryPanel";
 import { api, asAppError } from "./lib/ipc";
+import { isMac, modKey, modShiftKey, PLATFORM } from "./lib/platform";
 import { NetworkPanel } from "./network/NetworkPanel";
-import { LOCAL_CONNECTION_ID, WSL_CONNECTION_ID } from "./lib/types";
+import { isLocalConnection, WSL_CONNECTION_ID } from "./lib/types";
 import type {
   AppError,
   AuthPrompt,
@@ -57,6 +58,7 @@ import { TunnelsPanel } from "./tunnels/TunnelsPanel";
 import {
   setCommandSink,
   setInputRouter,
+  setShiftEnterMode,
   TerminalSession,
   terminals,
 } from "./terminal/session";
@@ -67,6 +69,7 @@ import {
   activePaneOf,
   findPane,
   findPaneBySession,
+  resolveConnection,
   useAppStore,
   type Pane,
   type PaneLayout,
@@ -100,6 +103,7 @@ export default function App() {
   const sidebarRail = useAppStore((s) => s.sidebarRail);
   const focusMode = useAppStore((s) => s.focusMode);
   const dimPanes = useAppStore((s) => s.settings.dimInactivePanes);
+  const shiftEnterMode = useAppStore((s) => s.settings.shiftEnterMode ?? "auto");
   const loadAll = useAppStore((s) => s.loadAll);
 
   const [editing, setEditing] = useState<Connection | null>(null);
@@ -300,7 +304,9 @@ export default function App() {
         reconnectTimers.current.delete(paneId);
         const st = useAppStore.getState();
         const f = findPane(st.tabs, paneId);
-        const connection = st.connections.find((c) => c.id === f?.pane.connectionId);
+        const connection = f
+          ? resolveConnection(st.connections, st.wslDistros, f.pane.connectionId)
+          : undefined;
         if (!f || !connection || f.pane.status !== "closed") return;
         pending.current = { paneId, connection };
         void startConnect(connection);
@@ -411,9 +417,8 @@ export default function App() {
   const retry = (pane: Pane) => {
     cancelReconnect(pane.id);
     useAppStore.getState().updatePane(pane.id, { reconnectAttempt: 0 });
-    const connection = useAppStore
-      .getState()
-      .connections.find((c) => c.id === pane.connectionId);
+    const st = useAppStore.getState();
+    const connection = resolveConnection(st.connections, st.wslDistros, pane.connectionId);
     if (!connection) return;
     pending.current = { paneId: pane.id, connection };
     void startConnect(connection);
@@ -463,9 +468,7 @@ export default function App() {
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
   const activePane = activePaneOf(activeTab);
   /** SFTP e túneis exigem canais SSH; containers valem também para a máquina local e WSL. */
-  const isLocalPane =
-    activePane?.connectionId === LOCAL_CONNECTION_ID ||
-    activePane?.connectionId === WSL_CONNECTION_ID;
+  const isLocalPane = isLocalConnection(activePane?.connectionId);
   const remoteSessionId =
     activePane?.sessionId && !isLocalPane ? activePane.sessionId : null;
   /** Painel lateral desta sessão — cada aba/painel guarda o seu. */
@@ -572,7 +575,7 @@ export default function App() {
   // Atalhos globais.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const meta = e.metaKey || e.ctrlKey;
+      const meta = isMac ? e.metaKey : e.ctrlKey;
       // Esc sai do focus mode: sem barra de abas visível, o botão de sair é a
       // única saída — e teclado tem que bastar.
       if (!meta && e.key === "Escape" && useAppStore.getState().focusMode) {
@@ -744,6 +747,11 @@ export default function App() {
     terminals.forEach((t) => t.setFontSize(fontSize));
   }, [fontSize]);
 
+  // Comportamento do Shift+Enter aplicado imediatamente a todos os terminais.
+  useEffect(() => {
+    setShiftEnterMode(shiftEnterMode);
+  }, [shiftEnterMode]);
+
   // Broadcast: o que for digitado em qualquer painel vai para todas as sessões
   // abertas. Um único `ssh_broadcast` no backend evita N round-trips de IPC por
   // tecla.
@@ -864,11 +872,21 @@ export default function App() {
         )}
 
         {pane.status === "closed" && pane.reconnectAttempt === 0 && pane.detail && (
-          <div className="term-overlay">
+          <div className="term-overlay" onMouseDown={(e) => e.stopPropagation()}>
             <div className="term-overlay__card">
               <div className="term-overlay__title">
                 <TriangleAlert size={16} color="var(--danger)" />
-                Não foi possível manter a sessão com {pane.title}
+                <span style={{ flex: 1 }}>
+                  Não foi possível manter a sessão com {pane.title}
+                </span>
+                <button
+                  className="icon-btn"
+                  title="Fechar painel"
+                  aria-label="Fechar painel"
+                  onClick={() => void closePane(pane.id)}
+                >
+                  <X size={14} />
+                </button>
               </div>
               <div className="term-overlay__msg">{pane.detail}</div>
               <div className="term-overlay__actions">
@@ -927,6 +945,7 @@ export default function App() {
     <TooltipProvider delayDuration={250} skipDelayDuration={400}>
     <div
       className="app"
+      data-platform={PLATFORM}
       data-sidebar={sidebarOpen && !focusMode}
       data-rail={sidebarRail}
       data-focus={focusMode}
@@ -948,7 +967,7 @@ export default function App() {
         {focusMode && (
           <button
             className="focus-exit"
-            title="Sair do focus mode (⌘⇧F ou Esc)"
+            title={`Sair do focus mode (${modShiftKey("F")} ou Esc)`}
             onClick={() => void setFocus(false)}
           >
             <Minimize2 size={13} /> sair do foco
@@ -964,10 +983,10 @@ export default function App() {
             aria-label="Alternar barra lateral"
             title={
               !sidebarOpen
-                ? "Mostrar barra lateral (⌘B)"
+                ? `Mostrar barra lateral (${modKey("B")})`
                 : sidebarRail
-                  ? "Expandir barra lateral (⌘B) — ⌘⇧B esconde"
-                  : "Recolher para ícones (⌘B) — ⌘⇧B esconde"
+                  ? `Expandir barra lateral (${modKey("B")}) — ${modShiftKey("B")} esconde`
+                  : `Recolher para ícones (${modKey("B")}) — ${modShiftKey("B")} esconde`
             }
             onClick={() => {
               const s = useAppStore.getState();
@@ -1054,8 +1073,8 @@ export default function App() {
             {broadcast && <span className="broadcast-badge">BROADCAST</span>}
             <button
               className="icon-btn"
-              aria-label="Dividir painel (⌘D lado a lado, ⌘⇧D empilhado)"
-              title="Dividir painel (⌘D lado a lado, ⌘⇧D empilhado)"
+              aria-label={`Dividir painel (${modKey("D")} lado a lado, ${modShiftKey("D")} empilhado)`}
+              title={`Dividir painel (${modKey("D")} lado a lado, ${modShiftKey("D")} empilhado)`}
               disabled={!activePane}
               onClick={() => splitActive("row")}
             >
@@ -1063,16 +1082,16 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
-              aria-label="Diminuir fonte (⌘−)"
-              title="Diminuir fonte (⌘−)"
+              aria-label={`Diminuir fonte (${modKey("−")})`}
+              title={`Diminuir fonte (${modKey("−")})`}
               onClick={() => useAppStore.getState().setFontSize(fontSize - 1)}
             >
               <Minus size={14} />
             </button>
             <button
               className="icon-btn"
-              aria-label="Aumentar fonte (⌘+)"
-              title="Aumentar fonte (⌘+)"
+              aria-label={`Aumentar fonte (${modKey("+")})`}
+              title={`Aumentar fonte (${modKey("+")})`}
               onClick={() => useAppStore.getState().setFontSize(fontSize + 1)}
             >
               <Plus size={14} />
@@ -1088,9 +1107,9 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
-              aria-label="Snippets — comandos salvos, digitados na sessão ativa (⌘K)"
+              aria-label={`Snippets — comandos salvos, digitados na sessão ativa (${modKey("K")})`}
               disabled={!activePane?.sessionId}
-              title="Snippets — comandos salvos, digitados na sessão ativa (⌘K)"
+              title={`Snippets — comandos salvos, digitados na sessão ativa (${modKey("K")})`}
               onClick={() => {
                 setPaletteSnippets(true);
                 setPaletteOpen(true);
@@ -1151,13 +1170,13 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
-              aria-label="Painel de containers"
+              aria-label={`Containers e Kubernetes (${modShiftKey("C")})`}
               data-active={openPanel === "docker"}
               disabled={!activePane?.sessionId}
               title={
                 isLocalPane
-                  ? "Containers Docker/Podman desta máquina"
-                  : "Containers Docker/Podman deste host"
+                  ? `Containers e Kubernetes desta máquina: Docker, Podman, k3s (${modShiftKey("C")})`
+                  : `Containers e Kubernetes deste host: Docker, Podman, k3s (${modShiftKey("C")})`
               }
               onClick={() => useAppStore.getState().togglePanel("docker")}
             >
@@ -1165,13 +1184,13 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
-              aria-label="Rede do host (⌘⇧N)"
+              aria-label={`Rede do host (${modShiftKey("N")})`}
               data-active={openPanel === "net"}
               disabled={!activePane?.sessionId}
               title={
                 isLocalPane
-                  ? "Rede desta máquina: IP, máscara, gateway e DNS (⌘⇧N)"
-                  : "Rede deste host: IP, máscara, gateway e DNS (⌘⇧N)"
+                  ? `Rede desta máquina: IP, máscara, gateway e DNS (${modShiftKey("N")})`
+                  : `Rede deste host: IP, máscara, gateway e DNS (${modShiftKey("N")})`
               }
               onClick={() => useAppStore.getState().togglePanel("net")}
             >
@@ -1179,13 +1198,13 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
-              aria-label="Sistema do host (⌘⇧S)"
+              aria-label={`Sistema do host (${modShiftKey("S")})`}
               data-active={openPanel === "sys"}
               disabled={!activePane?.sessionId}
               title={
                 isLocalPane
-                  ? "Sistema desta máquina: carga, memória, disco, processos (⌘⇧S)"
-                  : "Sistema deste host: carga, memória, disco, serviços, portas (⌘⇧S)"
+                  ? `Sistema desta máquina: carga, memória, disco, processos (${modShiftKey("S")})`
+                  : `Sistema deste host: carga, memória, disco, serviços, portas (${modShiftKey("S")})`
               }
               onClick={() => useAppStore.getState().togglePanel("sys")}
             >
@@ -1212,27 +1231,27 @@ export default function App() {
             </button>
             <button
               className="icon-btn"
-              aria-label="Histórico de comandos (⌘⇧H)"
+              aria-label={`Histórico de comandos (${modShiftKey("H")})`}
               data-active={openPanel === "history"}
               disabled={!activePane?.sessionId}
-              title="Comandos digitados nesta sessão — clique para rodar de novo (⌘⇧H)"
+              title={`Comandos digitados nesta sessão — clique para rodar de novo (${modShiftKey("H")})`}
               onClick={() => useAppStore.getState().togglePanel("history")}
             >
               <History size={14} />
             </button>
             <button
               className="icon-btn"
-              aria-label="Focus mode — tela cheia só com o terminal (⌘⇧F)"
+              aria-label={`Focus mode — tela cheia só com o terminal (${modShiftKey("F")})`}
               data-active={focusMode}
-              title="Focus mode — tela cheia só com o terminal (⌘⇧F)"
+              title={`Focus mode — tela cheia só com o terminal (${modShiftKey("F")})`}
               onClick={() => void setFocus(!focusMode)}
             >
               <Maximize2 size={14} />
             </button>
             <button
               className="icon-btn"
-              aria-label="Configurações (⌘,)"
-              title="Configurações (⌘,)"
+              aria-label={`Configurações (${modKey(",")})`}
+              title={`Configurações (${modKey(",")})`}
               onClick={() => setManaging("prefs")}
             >
               <SettingsIcon size={14} />
@@ -1256,8 +1275,8 @@ export default function App() {
               <TerminalIcon size={30} />
               <div>Escolha um servidor na barra lateral para conectar.</div>
               <div>
-                <span className="kbd">⌘K</span> abre a busca rápida ·{" "}
-                <span className="kbd">⌘D</span> divide o painel
+                <span className="kbd">{modKey("K")}</span> abre a busca rápida ·{" "}
+                <span className="kbd">{modKey("D")}</span> divide o painel
               </div>
             </div>
           ) : (

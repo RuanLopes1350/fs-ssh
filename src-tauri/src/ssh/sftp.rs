@@ -490,7 +490,16 @@ pub fn local_list(path: &str) -> AppResult<Vec<LocalEntry>> {
 
 pub fn home_dir() -> String {
     dirs::home_dir()
-        .unwrap_or_else(|| Path::new("/").to_path_buf())
+        .unwrap_or_else(|| {
+            #[cfg(windows)]
+            {
+                Path::new(r"C:\").to_path_buf()
+            }
+            #[cfg(not(windows))]
+            {
+                Path::new("/").to_path_buf()
+            }
+        })
         .to_string_lossy()
         .into_owned()
 }

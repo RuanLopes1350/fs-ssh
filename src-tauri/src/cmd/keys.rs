@@ -1,17 +1,30 @@
+use std::path::Path;
+
 use russh::keys::ssh_key::{HashAlg, PublicKey};
 use tauri::State;
 
 use super::net::sections;
 use super::AppState;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::keys;
 use crate::store::models::Identity;
 
-/// Relista as chaves: varre `~/.ssh`, junta as que só existem no agente e marca
-/// quais estão carregadas. É o que alimenta o seletor de chave da conexão.
+/// Relista as chaves: varre `~/.ssh`, mantém chaves `-i` importadas, junta as
+/// que só existem no agente e marca quais estão carregadas.
 #[tauri::command]
 pub async fn keys_list(state: State<'_, AppState>) -> AppResult<Vec<Identity>> {
     let mut found = keys::discover()?;
+    for existing in state.db.list_identities()? {
+        if existing.source == "imported" {
+            if let Some(p) = existing.path.as_deref() {
+                if !found.iter().any(|k| k.id == existing.id) {
+                    if let Ok(rechecked) = keys::inspect_file(Path::new(p), "imported") {
+                        found.push(rechecked);
+                    }
+                }
+            }
+        }
+    }
     found.extend(keys::agent_only_identities(&found).await);
 
     let mut stored = state.db.sync_identities(&found)?;
@@ -21,6 +34,28 @@ pub async fn keys_list(state: State<'_, AppState>) -> AppResult<Vec<Identity>> {
         id.in_agent = loaded.contains(&id.fingerprint);
     }
     Ok(stored)
+}
+
+/// Aponta e registra um arquivo de chave privada fora de `~/.ssh` (`ssh -i`),
+/// garantindo permissão `0600` no arquivo antes de salvá-lo no catálogo.
+#[tauri::command]
+pub async fn keys_import_file(state: State<'_, AppState>, path: String) -> AppResult<Identity> {
+    let raw_path = path.clone();
+    let id = tokio::task::spawn_blocking(move || keys::import_file(Path::new(&raw_path)))
+        .await
+        .map_err(|e| AppError::msg(format!("erro ao inspecionar chave: {e}")))??;
+    state.db.save_identity(&id)?;
+    state.db.log_event(
+        "info",
+        "keys",
+        None,
+        &id.label,
+        &format!(
+            "chave apontada (-i) com permissão 600: {}",
+            id.path.as_deref().unwrap_or(&path)
+        ),
+    );
+    Ok(id)
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -112,6 +147,12 @@ done
 exit 0
 "#;
 
+const WINDOWS_PUBKEYS_SCRIPT: &str = r#"Get-ChildItem -Path (Join-Path $HOME '.ssh') -Filter '*.pub' -File -ErrorAction SilentlyContinue | ForEach-Object {
+  Write-Output ('##' + $_.FullName)
+  Get-Content -LiteralPath $_.FullName -Raw -ErrorAction SilentlyContinue
+  Write-Output ''
+}"#;
+
 /// Lista as chaves públicas do `~/.ssh` do host da sessão (SSH ou terminal
 /// local), por exec — não passa pelo terminal do usuário.
 #[tauri::command]
@@ -120,7 +161,14 @@ pub async fn keys_remote_list(
     session_id: String,
 ) -> AppResult<Vec<RemotePubkey>> {
     let handle = state.sessions.get(&session_id).await?;
-    let (_exit_code, out) = handle.exec(REMOTE_PUBKEYS_SCRIPT.to_string()).await?;
+    let script = if cfg!(target_os = "windows")
+        && handle.info.connection_id == crate::local::LOCAL_CONNECTION_ID
+    {
+        WINDOWS_PUBKEYS_SCRIPT
+    } else {
+        REMOTE_PUBKEYS_SCRIPT
+    };
+    let (_exit_code, out) = handle.exec(script.to_string()).await?;
     Ok(parse_remote_pubkeys(&String::from_utf8_lossy(&out)))
 }
 

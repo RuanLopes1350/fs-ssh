@@ -24,11 +24,10 @@ export function PanePicker({
   onChoose: (c: Connection) => void;
   onCancel: () => void;
 }) {
-  const showWsl = useAppStore(
-    (s) =>
-      (s.wslAvailable && s.settings.showWslInSidebar !== false) ||
-      s.settings.wslShell.trim() !== "",
-  );
+  const wslDistros = useAppStore((s) => s.wslDistros);
+  const wslAvailable = useAppStore((s) => s.wslAvailable);
+  const wslShell = useAppStore((s) => s.settings.wslShell);
+  const showWslPref = useAppStore((s) => s.settings.showWslInSidebar !== false);
   const [q, setQ] = useState("");
   const [index, setIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -42,13 +41,21 @@ export function PanePicker({
       c.name.toLowerCase().includes(query) ||
       c.host.toLowerCase().includes(query) ||
       c.username.toLowerCase().includes(query);
-    const baseConns = showWsl ? [LOCAL_CONNECTION, WSL_CONNECTION] : [LOCAL_CONNECTION];
-    const list = [...baseConns, ...connections].filter(match);
+    const wslEntries = !showWslPref
+      ? []
+      : wslDistros.length > 0
+        ? wslShell.trim()
+          ? [WSL_CONNECTION, ...wslDistros]
+          : wslDistros
+        : wslAvailable || wslShell.trim()
+          ? [WSL_CONNECTION]
+          : [];
+    const list = [LOCAL_CONNECTION, ...wslEntries, ...connections].filter(match);
     // Sessão de origem primeiro: Enter direto = duplicar.
     return [...list].sort((a, b) =>
       a.id === currentId ? -1 : b.id === currentId ? 1 : 0,
     );
-  }, [q, connections, currentId, showWsl]);
+  }, [q, connections, wslDistros, currentId, showWslPref, wslShell, wslAvailable]);
 
   useEffect(() => setIndex(0), [q]);
 
